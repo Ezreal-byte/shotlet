@@ -95,6 +95,7 @@ void WindowsCaptureGuard::MinimizeOverlays() {
     for (HWND window : m_windows) {
         if (!IsWindowVisible(window) || IsIconic(window)) continue;
         // 异步隐藏/降级仍要等窗口线程处理消息；FORCEMINIMIZE 可在该线程卡住时生效。
+        // 无最小化样式的弹窗可能被隐藏而非置为 iconic；两种结果都已让出桌面。
         // 持续检查直到主线程接管取消，防止迟到的 ShowWindow 再次覆盖桌面。
         ShowWindow(window, SW_FORCEMINIMIZE);
     }

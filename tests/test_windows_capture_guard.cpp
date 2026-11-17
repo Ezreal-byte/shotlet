@@ -46,26 +46,29 @@ protected:
     std::vector<HWND> m_windows;
 };
 
-TEST_F(WindowsCaptureGuardTest, StalledWindowThreadIsMinimizedWithoutPumpingItsMessages) {
+TEST_F(WindowsCaptureGuardTest, StalledWindowThreadWithdrawsOverlaysWithoutPumpingItsMessages) {
     ASSERT_TRUE(m_guard.Start(m_windows));
     const auto deadline = CaptureSafetyState::Clock::now() + CaptureSafetyState::HeartbeatTimeout + RecoveryMargin;
     // 故意不处理任何窗口消息，模拟 GPU/游戏交互导致 UI 线程停滞。
-    bool allMinimized = false;
+    // SW_FORCEMINIMIZE 在无最小化样式的弹窗上可表现为隐藏；两种状态都应让出桌面。
+    bool allWithdrawn = false;
     while (CaptureSafetyState::Clock::now() < deadline) {
-        allMinimized = true;
-        for (HWND window : m_windows) allMinimized &= IsIconic(window) != FALSE;
-        if (allMinimized) break;
+        allWithdrawn = true;
+        for (HWND window : m_windows) allWithdrawn &= !IsWindowVisible(window) || IsIconic(window);
+        if (allWithdrawn) break;
         std::this_thread::sleep_for(ObserveInterval);
     }
     EXPECT_EQ(m_guard.GetReason(), WindowsCaptureGuard::Reason::Unresponsive);
     for (HWND window : m_windows) {
-        EXPECT_TRUE(IsIconic(window)) << "HWND=" << window << " visible=" << IsWindowVisible(window)
+        EXPECT_TRUE(!IsWindowVisible(window) || IsIconic(window))
+            << "HWND=" << window << " visible=" << IsWindowVisible(window)
             << " hung=" << IsHungAppWindow(window);
     }
     m_guard.Stop();
-    // daemon 会复用同一组 HWND；保护最小化不能让下一次截图一直处于最小化状态。
+    // daemon 会复用同一组 HWND；保护撤下窗口后，下一次截图必须仍可正常显示。
     for (HWND window : m_windows) {
         ShowWindow(window, SW_SHOWNOACTIVATE);
+        EXPECT_TRUE(IsWindowVisible(window));
         EXPECT_FALSE(IsIconic(window));
     }
     ASSERT_TRUE(m_guard.Start(m_windows));

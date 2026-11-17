@@ -141,6 +141,11 @@ TEST_F(WindowsRecordingPlaybackTest, AdvancingAndReversingProgressRepaintsTheEnt
     // 不能复用 Pixel() 的全量离屏重绘，它会掩盖原生局部刷新留下的裂缝。
     // 将本测试窗口和进度条置前，直接检查连续移动后仍保留在窗口表面的像素。
     SetWindowPos(m_window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    // GIF 布局复用隐藏进度条所在行放置播放按钮；单独显示进度条时，
+    // 必须先隐藏其它子控件，否则兄弟窗口绘制会污染真实表面的像素。
+    for (HWND control = GetWindow(m_window, GW_CHILD); control; control = GetWindow(control, GW_HWNDNEXT)) {
+        if (control != m_seek) ShowWindow(control, SW_HIDE);
+    }
     ShowWindow(m_seek, SW_SHOW);
     SetWindowPos(m_seek, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     SendMessageW(m_seek, TBM_SETRANGE, TRUE, MAKELPARAM(0, ProgressRangeMaximum));
