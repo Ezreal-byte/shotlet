@@ -19,9 +19,11 @@ docs/*
 test.go
 .DS_Store
 .cache
-sdl*
-SDL*
-imgui*
+# 仅忽略仓库根目录的第三方源码目录，避免误排除 src/utils/ImGuiUtils.h 等项目文件。
+/sdl*/
+/SDL*/
+/imgui*/
+/imgui.ini
 AGENTS.md
 .fresh
 
