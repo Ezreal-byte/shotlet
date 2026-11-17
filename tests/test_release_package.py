@@ -1,7 +1,9 @@
 """验证发布标签约束、分发内容完整性，以及打包失败时保留原有产物。"""
 
+from contextlib import redirect_stdout
 import hashlib
 import importlib.util
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -67,6 +69,14 @@ class ReleasePackageTest(unittest.TestCase):
             RELEASE.package_release(self.build, self.output, "windows-x64", "1.2.3")
         self.assertEqual(archive.read_bytes(), b"previous valid package")
         self.assertEqual(list(self.output.iterdir()), [archive])
+
+    def test_packaging_succeeds_with_windows_ci_console_encoding(self):
+        # Windows runner 的重定向控制台可能使用 cp1252，成功日志不能使打包变为失败。
+        with io.TextIOWrapper(io.BytesIO(), encoding="cp1252") as console:
+            with redirect_stdout(console):
+                RELEASE.package_release(self.build, self.output, "windows-x64", "1.2.3")
+            console.flush()
+        self.assertTrue((self.output / "shotlet-1.2.3-windows-x64.zip").is_file())
 
 
 if __name__ == "__main__":

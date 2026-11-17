@@ -44,8 +44,8 @@ def stage_package(build, destination, target):
             raise ValueError(f"请在 {expected_arch} macOS 构建机上打包 {target}")
         bundle = build / "shotlet.app"
         # 检查实际架构与签名，防止矩阵配置错误或资源复制使签名失效。
-        subprocess.run(["lipo", "-verify_arch", expected_arch,
-                        str(bundle / "Contents/MacOS/shotlet")], check=True)
+        subprocess.run(["lipo", str(bundle / "Contents/MacOS/shotlet"),
+                        "-verify_arch", expected_arch], check=True)
         subprocess.run(["codesign", "--verify", "--strict", str(bundle)], check=True)
         subprocess.run(["ditto", str(bundle), str(destination / bundle.name)], check=True)
     else:
@@ -92,7 +92,7 @@ def package_release(build, output, target, version):
         checksum.write_text(f"{digest.hexdigest()}  {archive.name}\n", encoding="utf-8")
         archive.replace(output / archive.name)
         checksum.replace(output / checksum.name)
-    print(f"发布包已生成：{output / archive.name}")
+    print(f"Release package created: {output / archive.name}")
 
 
 def main():
