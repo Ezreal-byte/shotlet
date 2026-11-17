@@ -1,4 +1,5 @@
 #pragma once
+#include "platform/PlatformWin32.h"
 #include <SDL3/SDL.h>
 #include <chrono>
 #include <future>
@@ -7,6 +8,18 @@
 namespace shotlet::TestUtils {
 inline constexpr auto NativePollInterval = std::chrono::milliseconds(5);
 inline constexpr auto NativeWaitTimeout = std::chrono::seconds(10);
+
+inline void DrainWindowMessages() {
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) {
+            PostQuitMessage(static_cast<int>(message.wParam));
+            return;
+        }
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+}
 
 inline void PumpFor(std::chrono::milliseconds duration) {
     const auto deadline = std::chrono::steady_clock::now() + duration;

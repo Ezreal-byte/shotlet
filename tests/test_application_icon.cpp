@@ -93,8 +93,9 @@ TEST_F(ApplicationWindowIconTest, NativeWindowKeepsBothIconSizesAfterTemporarySu
         DeleteObject(info.hbmColor);
         DeleteObject(info.hbmMask);
         ASSERT_EQ(copiedBytes, static_cast<int>(sizeof(bitmap)));
-        EXPECT_EQ(bitmap.bmWidth, ApplicationIcon::WindowSizePixels);
-        EXPECT_EQ(bitmap.bmHeight, ApplicationIcon::WindowSizePixels);
+        // SDL 通过 CreateIconFromResource 创建两个原生图标，Windows 会按系统图标尺寸缩放。
+        EXPECT_EQ(bitmap.bmWidth, GetSystemMetrics(SM_CXICON));
+        EXPECT_EQ(bitmap.bmHeight, GetSystemMetrics(SM_CYICON));
     }
 }
 #endif

@@ -109,8 +109,13 @@ protected:
     }
     void VerifyVideo(const std::filesystem::path& path, bool requestedDeviceExists) {
         using Microsoft::WRL::ComPtr;
+        constexpr UINT ReaderAttributeCount = 1;
+        ComPtr<IMFAttributes> attributes;
+        ASSERT_TRUE(SUCCEEDED(MFCreateAttributes(&attributes, ReaderAttributeCount)));
+        // H.264 解码通常输出 YUV，显式启用软件转换才能请求 RGB32，与显卡能力无关。
+        ASSERT_TRUE(SUCCEEDED(attributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE)));
         ComPtr<IMFSourceReader> reader;
-        ASSERT_TRUE(SUCCEEDED(MFCreateSourceReaderFromURL(path.c_str(), nullptr, &reader)));
+        ASSERT_TRUE(SUCCEEDED(MFCreateSourceReaderFromURL(path.c_str(), attributes.Get(), &reader)));
         ComPtr<IMFMediaType> audio;
         const auto audioResult = reader->GetNativeMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, &audio);
         if (!requestedDeviceExists) EXPECT_TRUE(FAILED(audioResult)) << "无可用音源时不得创建空音轨";
@@ -120,7 +125,9 @@ protected:
         ASSERT_TRUE(SUCCEEDED(output->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32)));
         ASSERT_TRUE(SUCCEEDED(reader->SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS, FALSE)));
         ASSERT_TRUE(SUCCEEDED(reader->SetStreamSelection(MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE)));
-        ASSERT_TRUE(SUCCEEDED(reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, output.Get())));
+        std::string decodeError;
+        ASSERT_TRUE(Win32Utils::CheckHResult(reader->SetCurrentMediaType(
+            MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, output.Get()), "设置 RGB32 解码输出失败", decodeError)) << decodeError;
         int decodedFrames = 0;
         while (true) {
             DWORD flags = 0;

@@ -40,7 +40,7 @@ constexpr UINT_PTR KeyboardSubclassId = 1;
 constexpr UINT PlaybackAttributeCount = 2;
 constexpr BYTE OpaqueAlpha = 255;
 constexpr float ButtonRadiusLogical = 6, ButtonStrokeLogical = 1, ButtonInsetLogical = 1;
-constexpr float SliderTrackHeightLogical = 4, SliderThumbRadiusLogical = 5, SliderActiveThumbRadiusLogical = 6;
+constexpr float SliderTrackHeightLogical = 4;
 constexpr int SliderThumbHitHeightLogical = 20;
 constexpr int DividerHeightLogical = 1;
 enum ControlId { Play = 100, Seek, Volume, FullScreen, Reveal, Time, Detail };
@@ -203,7 +203,7 @@ private:
         Win32Drawing::RoundedRect(graphics, track, trackHeight / 2, p.border);
         const Gdiplus::RectF progress(track.X, track.Y, centerX - track.X, track.Height);
         Win32Drawing::RoundedRect(graphics, progress, trackHeight / 2, enabled ? p.confirmButton : p.disabledIcon);
-        const float radius = float((active ? SliderActiveThumbRadiusLogical : SliderThumbRadiusLogical) * m_scale);
+        const float radius = float((active ? Layout::SliderActiveThumbRadiusLogical : Layout::SliderThumbRadiusLogical) * m_scale);
         Gdiplus::SolidBrush handle(Win32Drawing::Color(enabled ? p.confirmButton : p.disabledIcon));
         graphics.FillEllipse(&handle, centerX - radius, centerY - radius, radius * 2, radius * 2);
     }

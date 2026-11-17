@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <thread>
+#include "utils/ScopeExit.h"
 
 #include "scrollcapture/MacScrollEvent.h"
 #include "scrollcapture/MacFrameSource.h"
@@ -115,11 +116,13 @@ TEST(ScrollCapturePlatformTest, EarlyIdleMustWaitForDelayedScrollResponse) {
     source.HandleFrame(first, 1, 1, 4, false);
     const auto baseline = source.TakeBaseline();
     source.HandleIdleFrame(baseline.notBefore + 2);
-    std::jthread producer([&] {
+    std::thread producer([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(80));
         source.HandleFrame(moved, 1, 1, 4, false);
         source.HandleIdleFrame();
     });
+    // 部分 Apple libc++ 尚未提供 jthread；断言提前退出时也必须先回收借用局部数据的线程。
+    const ScopeExit joinProducer([&] { producer.join(); });
     CapturedFrame frame;
     ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
     EXPECT_EQ(frame.pixels, (std::vector<uint8_t>{90, 100, 110, 255}));
@@ -134,11 +137,12 @@ TEST(ScrollCapturePlatformTest, BriefAnimationPauseMustNotFinishStep) {
     const auto baseline = source.TakeBaseline();
     source.HandleFrame(middle, 1, 1, 4, false, baseline.notBefore + 1);
     source.HandleIdleFrame(baseline.notBefore + 2);
-    std::jthread producer([&] {
+    std::thread producer([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(60));
         source.HandleFrame(final, 1, 1, 4, false);
         source.HandleIdleFrame();
     });
+    const ScopeExit joinProducer([&] { producer.join(); });
     CapturedFrame frame;
     ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
     EXPECT_EQ(frame.pixels, (std::vector<uint8_t>{90, 100, 110, 255}));
@@ -161,7 +165,7 @@ TEST(ScrollCapturePlatformTest, ContinuingAnimationAtDeadlineIsNotStable) {
     const uint8_t first[] = {10, 20, 30, 255};
     source.HandleFrame(first, 1, 1, 4, false);
     const auto baseline = source.TakeBaseline();
-    std::jthread producer([&] {
+    std::thread producer([&] {
         for (int i = 0; i < 10; ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(40));
             const uint8_t shade = (i % 2 == 0) ? 100 : 200;
@@ -169,6 +173,7 @@ TEST(ScrollCapturePlatformTest, ContinuingAnimationAtDeadlineIsNotStable) {
             source.HandleFrame(pixels, 1, 1, 4, false);
         }
     });
+    const ScopeExit joinProducer([&] { producer.join(); });
     CapturedFrame frame;
     ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
     EXPECT_FALSE(frame.stable);
@@ -197,11 +202,12 @@ TEST(ScrollCapturePlatformTest, DelayedScrollRemainsAssociatedWithItsOwnInjectio
         source.HandleIdleFrame(baseline.notBefore + 2);
         spec.contentY += intent * 2;
         auto moved = scrolltest::CutFrame(page, width, pageHeight, spec);
-        std::jthread producer([&] {
+        std::thread producer([&] {
             std::this_thread::sleep_for(std::chrono::milliseconds(80));
             source.HandleFrame(moved.data(), width, height, width * 4, false);
             source.HandleIdleFrame();
         });
+        const ScopeExit joinProducer([&] { producer.join(); });
         CapturedFrame frame;
         ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
         ASSERT_TRUE(frame.stable);

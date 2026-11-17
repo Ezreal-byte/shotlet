@@ -12,6 +12,7 @@ inline constexpr int PreferredWidthLogical = 900, PreferredHeightLogical = 600;
 inline constexpr int MinimumWidthLogical = 420, MinimumHeightLogical = 280;
 inline constexpr int FooterHeightLogical = 48, PaddingLogical = 12;
 inline constexpr int ButtonWidthLogical = 140, ButtonHeightLogical = 28;
+inline constexpr float SliderThumbRadiusLogical = 5, SliderActiveThumbRadiusLogical = 6;
 inline constexpr double WorkAreaFraction = 0.8;
 }
 

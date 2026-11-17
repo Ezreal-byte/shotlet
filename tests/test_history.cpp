@@ -8,7 +8,11 @@
 #include <cstring>
 #include <thread>
 #include <algorithm>
-#if !defined(_WIN32)
+#include <cstdlib>
+#if defined(_WIN32)
+#include "platform/PlatformWin32.h"
+#include "utils/ScopeExit.h"
+#else
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -160,6 +164,9 @@ TEST_F(HistoryTest, CommittedMutationsNotifyOtherInstancesAndReadsDoNotChangeRev
     ASSERT_TRUE(writer.Trash(id, error)); expectChanged();
     ASSERT_TRUE(writer.Restore(id, error)); expectChanged();
     ASSERT_TRUE(writer.Delete(id, error)); expectChanged();
+    ASSERT_TRUE(writer.SetEnabled(false, error)); expectChanged();
+    EXPECT_FALSE(reader.GetConfig().enabled);
+    ASSERT_TRUE(writer.SetEnabled(true, error)); expectChanged();
     for (int i = 0; i < 20; ++i) {
         EXPECT_TRUE(reader.List().empty());
         reader.GetConfig();
@@ -168,10 +175,31 @@ TEST_F(HistoryTest, CommittedMutationsNotifyOtherInstancesAndReadsDoNotChangeRev
     }
 }
 
-#if !defined(_WIN32)
 TEST_F(HistoryTest, SeparateProcessPublishesHistoryChangeNotification) {
     HistoryStore reader(root);
     const auto before = reader.Revision();
+#if defined(_WIN32)
+    constexpr auto ChildTimeout = std::chrono::seconds(10);
+    const fs::path executable(SHOTLET_HISTORY_PROCESS_PROBE);
+    auto command = L"\"" + executable.wstring() + L"\" \"" + root.wstring() + L"\" 1 1";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    ASSERT_TRUE(CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+        0, nullptr, nullptr, &startup, &process)) << GetLastError();
+    const ScopeExit closeProcess([&] { CloseHandle(process.hThread); CloseHandle(process.hProcess); });
+    const auto waitResult = WaitForSingleObject(process.hProcess,
+        static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(ChildTimeout).count()));
+    if (waitResult != WAIT_OBJECT_0) {
+        // 子进程仍可能借用测试目录；先终止并回收，再允许 TearDown 删除目录。
+        TerminateProcess(process.hProcess, EXIT_FAILURE);
+        WaitForSingleObject(process.hProcess, INFINITE);
+        FAIL() << "历史通知子进程超时或等待失败：" << waitResult;
+    }
+    DWORD exitCode = EXIT_FAILURE;
+    ASSERT_TRUE(GetExitCodeProcess(process.hProcess, &exitCode));
+    ASSERT_EQ(exitCode, EXIT_SUCCESS);
+#else
     const pid_t child = fork(); ASSERT_GE(child, 0);
     if (child == 0) {
         // fork 后直接 exec，避免在未 exec 的子进程中调用 macOS 通知框架。
@@ -181,6 +209,7 @@ TEST_F(HistoryTest, SeparateProcessPublishesHistoryChangeNotification) {
     int status = 0;
     ASSERT_EQ(waitpid(child, &status, 0), child);
     ASSERT_TRUE(WIFEXITED(status)); ASSERT_EQ(WEXITSTATUS(status), 0);
+#endif
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     auto after = reader.Revision();
     while (after == before && std::chrono::steady_clock::now() < deadline) {
@@ -190,7 +219,6 @@ TEST_F(HistoryTest, SeparateProcessPublishesHistoryChangeNotification) {
     EXPECT_GT(after, before);
     EXPECT_EQ(reader.List().size(), 1u);
 }
-#endif
 TEST_F(HistoryTest, ByteQuotaPrunesOldestAndOversizedEntryKeepsOldRecords) {
     HistoryStore store(root); ASSERT_TRUE(Write(store, 1));
     auto bytes = store.List()[0].bytes;

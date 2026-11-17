@@ -7,6 +7,7 @@
 #include "native_events_win.h"
 #include <commctrl.h>
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -17,6 +18,7 @@ constexpr int FrameDelayMs = 100, FrameCount = 2, ColorMaximum = 255;
 constexpr int PixelInsetLogical = 2, ButtonSampleInsetLogical = 8;
 constexpr int VolumeMidpoint = 50, FullVolume = 100;
 constexpr int ProgressRangeMaximum = 100, TrackScanInsetLogical = 4;
+constexpr int AntialiasMarginPixels = 1;
 }
 
 class WindowsRecordingPlaybackTest : public testing::Test {
@@ -159,9 +161,15 @@ TEST_F(WindowsRecordingPlaybackTest, AdvancingAndReversingProgressRepaintsTheEnt
             SendMessageW(m_seek, TBM_GETCHANNELRECT, 0, reinterpret_cast<LPARAM>(&channel));
             SendMessageW(m_seek, TBM_GETTHUMBRECT, 0, reinterpret_cast<LPARAM>(&thumb));
             const int centerY = int(bounds.bottom / 2), edgeInset = Scaled(TrackScanInsetLogical);
-            for (int x = int(channel.left) + edgeInset; x < thumb.left; ++x)
+            // 原生命中矩形不等于自绘圆形滑块；轨道采样需避开最大半径及抗锯齿边缘。
+            const double centerX = std::clamp((thumb.left + thumb.right) / 2.0,
+                double(channel.left), double(channel.right));
+            const double radiusPixels = RecordingPlaybackLayout::SliderActiveThumbRadiusLogical * m_scale;
+            const int thumbLeft = int(std::floor(centerX - radiusPixels)) - AntialiasMarginPixels;
+            const int thumbRight = int(std::ceil(centerX + radiusPixels)) + AntialiasMarginPixels;
+            for (int x = int(channel.left) + edgeInset; x < thumbLeft; ++x)
                 ASSERT_EQ(GetPixel(dc, x, centerY), Colors::ToNativeRgb(palette.confirmButton)) << "已播放部分断裂，x=" << x;
-            for (int x = int(thumb.right); x < int(channel.right) - edgeInset; ++x)
+            for (int x = thumbRight; x < int(channel.right) - edgeInset; ++x)
                 ASSERT_EQ(GetPixel(dc, x, centerY), Colors::ToNativeRgb(palette.border)) << "未播放部分残留旧色，x=" << x;
         };
         // 大步移动使新旧滑块区域互不相连，同时覆盖起点、终点和反向跳转。

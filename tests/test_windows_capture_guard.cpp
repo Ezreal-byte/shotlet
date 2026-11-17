@@ -1,4 +1,5 @@
 #include "platform/WindowsCaptureGuard.h"
+#include "native_events_win.h"
 #include <gtest/gtest.h>
 
 namespace shotlet {
@@ -6,7 +7,8 @@ namespace {
 constexpr wchar_t TestWindowClass[] = L"ShotletCaptureGuardTest";
 constexpr int TestWindowSizePixels = 120;
 constexpr auto ObserveInterval = std::chrono::milliseconds(10);
-constexpr auto RecoveryMargin = std::chrono::seconds(2);
+// Windows 自己也要判定窗口线程挂起，多个窗口的系统处理不能限定在额外 2 秒内。
+constexpr auto RecoveryMargin = std::chrono::seconds(10);
 
 class WindowsCaptureGuardTest : public testing::Test {
 protected:
@@ -24,7 +26,10 @@ protected:
             m_windows.push_back(window);
             ShowWindow(window, SW_SHOWNOACTIVATE);
         }
+        // 先完成窗口启动消息，再模拟已运行的 UI 线程停滞；启动阶段不属于系统的挂起判定。
+        TestUtils::DrainWindowMessages();
         SetForegroundWindow(m_windows.front());
+        TestUtils::DrainWindowMessages();
         DWORD foregroundPid = 0;
         GetWindowThreadProcessId(GetForegroundWindow(), &foregroundPid);
         if (foregroundPid != GetCurrentProcessId()) GTEST_SKIP() << "测试需要前台桌面权限";
@@ -53,7 +58,10 @@ TEST_F(WindowsCaptureGuardTest, StalledWindowThreadIsMinimizedWithoutPumpingItsM
         std::this_thread::sleep_for(ObserveInterval);
     }
     EXPECT_EQ(m_guard.GetReason(), WindowsCaptureGuard::Reason::Unresponsive);
-    EXPECT_TRUE(allMinimized);
+    for (HWND window : m_windows) {
+        EXPECT_TRUE(IsIconic(window)) << "HWND=" << window << " visible=" << IsWindowVisible(window)
+            << " hung=" << IsHungAppWindow(window);
+    }
     m_guard.Stop();
     // daemon 会复用同一组 HWND；保护最小化不能让下一次截图一直处于最小化状态。
     for (HWND window : m_windows) {

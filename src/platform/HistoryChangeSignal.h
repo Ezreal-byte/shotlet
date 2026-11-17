@@ -19,6 +19,9 @@ private:
     std::filesystem::path m_directory;
     std::string m_name;
     intptr_t m_handle = -1;
+#if defined(_WIN32)
+    void* m_sharedRevision = nullptr;
+#endif
     std::atomic<uint64_t> m_revision{0};
 };
 } // namespace shotlet

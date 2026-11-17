@@ -53,7 +53,10 @@ TEST_F(HotkeyBindingTest, SavesReplacesAndReloadsShortcutIncludingDeletion) {
     EXPECT_EQ(LoadHotkeyBinding(file), HotkeyBinding::Disabled());
     ASSERT_TRUE(SaveHotkeyBinding(file, {}));
     EXPECT_EQ(LoadHotkeyBinding(file), HotkeyBinding{});
-    EXPECT_FALSE(std::filesystem::exists(file.string() + ".tmp"));
+    // 保留原生路径编码，Windows 默认代码页不一定能表示中文文件名。
+    auto temporary = file;
+    temporary += ".tmp";
+    EXPECT_FALSE(std::filesystem::exists(temporary));
 }
 
 TEST_F(HotkeyBindingTest, MalformedTruncatedAndUnknownVersionsFallBackToDefault) {
