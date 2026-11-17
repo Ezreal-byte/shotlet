@@ -1,16 +1,18 @@
 #include <gtest/gtest.h>
-#include <chrono>
-#include <thread>
-#include "utils/ScopeExit.h"
 
 #include "scrollcapture/MacScrollEvent.h"
 #include "scrollcapture/MacFrameSource.h"
 #include "scrollcapture/ScrollCaptureStitcher.h"
 #include "scrollcapture/ScrollPlanner.h"
 #include "scroll_capture_test_data.h"
+#include "mac_frame_timeline.h"
 
 namespace shotlet {
 namespace {
+
+using Milliseconds = TestUtils::MacFrameTimeline::Milliseconds;
+const Milliseconds kQuietPeriod{MacFrameSource::Config{}.quietPeriodMs};
+const Milliseconds kSettleTimeout{MacFrameSource::Config{}.settleTimeoutMs};
 
 TEST(ScrollCapturePlatformTest, VerticalWheelProducesIntentAndHorizontalWheelDoesNot) {
     // 直接构造系统滚轮事件，防止只测数值换算而漏掉轴读取错误。
@@ -76,7 +78,7 @@ TEST(ScrollCapturePlatformTest, SharedFramesKeepPixelsWithoutCopyingOrHoldingSou
 }
 
 TEST(ScrollCapturePlatformTest, RespondedAndQuietFrameDoesNotPayFixedGuardDelay) {
-    // 应用已经响应且持续静止时，不应继续支付固定 200ms 等待。
+    // 应用已经响应且持续静止时，应在静止窗口结束，不再叠加固定等待。
     MacFrameSource source;
     const uint8_t first[] = {10, 20, 30, 255};
     const uint8_t next[] = {90, 100, 110, 255};
@@ -84,13 +86,11 @@ TEST(ScrollCapturePlatformTest, RespondedAndQuietFrameDoesNotPayFixedGuardDelay)
     const auto baseline = source.TakeBaseline();
     source.HandleFrame(next, 1, 1, 4, false, baseline.notBefore + 1);
     source.HandleIdleFrame(baseline.notBefore + 2);
-    const auto start = std::chrono::steady_clock::now();
+    TestUtils::MacFrameTimeline timeline(source, baseline);
     CapturedFrame frame;
-    ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
-    const auto elapsed = std::chrono::steady_clock::now() - start;
+    ASSERT_TRUE(timeline.WaitForStableFrame(frame));
     EXPECT_TRUE(frame.stable);
-    EXPECT_GE(elapsed, std::chrono::milliseconds(75));
-    EXPECT_LT(elapsed, std::chrono::milliseconds(180));
+    EXPECT_DOUBLE_EQ(timeline.Elapsed().count(), kQuietPeriod.count());
     EXPECT_EQ(frame.pixels, (std::vector<uint8_t>{90, 100, 110, 255}));
 }
 
@@ -100,31 +100,27 @@ TEST(ScrollCapturePlatformTest, IdleAfterInjectionConfirmsUnchangedFrame) {
     source.HandleFrame(pixels, 1, 1, 4, false);
     const auto baseline = source.TakeBaseline();
     source.HandleIdleFrame(baseline.notBefore + 2);
-    const auto start = std::chrono::steady_clock::now();
+    TestUtils::MacFrameTimeline timeline(source, baseline);
     CapturedFrame frame;
-    ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
-    EXPECT_GE(std::chrono::steady_clock::now() - start, std::chrono::milliseconds(390));
+    ASSERT_TRUE(timeline.WaitForStableFrame(frame));
+    EXPECT_DOUBLE_EQ(timeline.Elapsed().count(), kSettleTimeout.count());
     EXPECT_TRUE(frame.stable);
     EXPECT_EQ(frame.pixels, (std::vector<uint8_t>{10, 20, 30, 255}));
 }
 
 TEST(ScrollCapturePlatformTest, EarlyIdleMustWaitForDelayedScrollResponse) {
-    // 复现日志：注入后 3ms 的 Idle 先到，真正滚动效果约 80ms 后才出现。
+    // 注入后的 Idle 先到，真正滚动效果经过延迟才出现，不能被提前判为无变化。
     MacFrameSource source;
     const uint8_t first[] = {10, 20, 30, 255};
     const uint8_t moved[] = {90, 100, 110, 255};
     source.HandleFrame(first, 1, 1, 4, false);
     const auto baseline = source.TakeBaseline();
     source.HandleIdleFrame(baseline.notBefore + 2);
-    std::thread producer([&] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(80));
-        source.HandleFrame(moved, 1, 1, 4, false);
-        source.HandleIdleFrame();
-    });
-    // 部分 Apple libc++ 尚未提供 jthread；断言提前退出时也必须先回收借用局部数据的线程。
-    const ScopeExit joinProducer([&] { producer.join(); });
+    TestUtils::MacFrameTimeline timeline(source, baseline);
+    const auto responseDelay = kQuietPeriod;
+    timeline.ScheduleFrame(responseDelay, {moved, 1, 1, 4});
     CapturedFrame frame;
-    ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
+    ASSERT_TRUE(timeline.WaitForStableFrame(frame));
     EXPECT_EQ(frame.pixels, (std::vector<uint8_t>{90, 100, 110, 255}));
 }
 
@@ -137,14 +133,15 @@ TEST(ScrollCapturePlatformTest, BriefAnimationPauseMustNotFinishStep) {
     const auto baseline = source.TakeBaseline();
     source.HandleFrame(middle, 1, 1, 4, false, baseline.notBefore + 1);
     source.HandleIdleFrame(baseline.notBefore + 2);
-    std::thread producer([&] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(60));
-        source.HandleFrame(final, 1, 1, 4, false);
-        source.HandleIdleFrame();
-    });
-    const ScopeExit joinProducer([&] { producer.join(); });
+    TestUtils::MacFrameTimeline timeline(source, baseline);
+    // 暂停时间短于静止窗口，最终帧到达后必须重新计算静止时间。
+    constexpr double kAnimationPauseFraction = 0.75;
+    const auto animationPause = kQuietPeriod * kAnimationPauseFraction;
+    timeline.ScheduleFrame(animationPause, {final, 1, 1, 4});
     CapturedFrame frame;
-    ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
+    ASSERT_TRUE(timeline.WaitForStableFrame(frame));
+    EXPECT_TRUE(frame.stable);
+    EXPECT_DOUBLE_EQ(timeline.Elapsed().count(), (animationPause + kQuietPeriod).count());
     EXPECT_EQ(frame.pixels, (std::vector<uint8_t>{90, 100, 110, 255}));
 }
 
@@ -156,8 +153,10 @@ TEST(ScrollCapturePlatformTest, QueuedPreInjectionFrameIsNotFreshEvenIfCallbackI
     const auto baseline = source.TakeBaseline();
     // 回调发生在注入之后，但帧生成于注入之前，不能算作当前步骤的新画面。
     source.HandleFrame(queued, 1, 1, 4, false, baseline.notBefore - 1);
+    TestUtils::MacFrameTimeline timeline(source, baseline);
     CapturedFrame frame;
-    EXPECT_FALSE(source.WaitForStableFrame(baseline, frame));
+    EXPECT_FALSE(timeline.WaitForStableFrame(frame));
+    EXPECT_DOUBLE_EQ(timeline.Elapsed().count(), kSettleTimeout.count());
 }
 
 TEST(ScrollCapturePlatformTest, ContinuingAnimationAtDeadlineIsNotStable) {
@@ -165,18 +164,19 @@ TEST(ScrollCapturePlatformTest, ContinuingAnimationAtDeadlineIsNotStable) {
     const uint8_t first[] = {10, 20, 30, 255};
     source.HandleFrame(first, 1, 1, 4, false);
     const auto baseline = source.TakeBaseline();
-    std::thread producer([&] {
-        for (int i = 0; i < 10; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(40));
-            const uint8_t shade = (i % 2 == 0) ? 100 : 200;
-            const uint8_t pixels[] = {shade, shade, shade, 255};
-            source.HandleFrame(pixels, 1, 1, 4, false);
-        }
-    });
-    const ScopeExit joinProducer([&] { producer.join(); });
+    TestUtils::MacFrameTimeline timeline(source, baseline);
+    const auto frameInterval = kQuietPeriod / 2;
+    const uint8_t dark[] = {100, 100, 100, 255};
+    const uint8_t light[] = {200, 200, 200, 255};
+    bool useDark = true;
+    for (auto offset = frameInterval; offset <= kSettleTimeout; offset += frameInterval) {
+        timeline.ScheduleFrame(offset, {useDark ? dark : light, 1, 1, 4});
+        useDark = !useDark;
+    }
     CapturedFrame frame;
-    ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
+    ASSERT_TRUE(timeline.WaitForStableFrame(frame));
     EXPECT_FALSE(frame.stable);
+    EXPECT_DOUBLE_EQ(timeline.Elapsed().count(), kSettleTimeout.count());
 }
 
 TEST(ScrollCapturePlatformTest, DelayedScrollRemainsAssociatedWithItsOwnInjection) {
@@ -202,14 +202,10 @@ TEST(ScrollCapturePlatformTest, DelayedScrollRemainsAssociatedWithItsOwnInjectio
         source.HandleIdleFrame(baseline.notBefore + 2);
         spec.contentY += intent * 2;
         auto moved = scrolltest::CutFrame(page, width, pageHeight, spec);
-        std::thread producer([&] {
-            std::this_thread::sleep_for(std::chrono::milliseconds(80));
-            source.HandleFrame(moved.data(), width, height, width * 4, false);
-            source.HandleIdleFrame();
-        });
-        const ScopeExit joinProducer([&] { producer.join(); });
+        TestUtils::MacFrameTimeline timeline(source, baseline);
+        timeline.ScheduleFrame(kQuietPeriod, {moved.data(), width, height, width * 4});
         CapturedFrame frame;
-        ASSERT_TRUE(source.WaitForStableFrame(baseline, frame));
+        ASSERT_TRUE(timeline.WaitForStableFrame(frame));
         ASSERT_TRUE(frame.stable);
         const auto result = stitcher.ProcessFrame({
             {frame.pixels.data(), width, height, width * 4},

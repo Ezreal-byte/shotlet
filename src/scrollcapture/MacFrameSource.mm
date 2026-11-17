@@ -467,7 +467,16 @@ bool MacFrameSource::WaitForNextFrame(uint64_t afterFrameId, CapturedFrame& out,
 }
 
 bool MacFrameSource::WaitForStableFrame(const CaptureBaseline& baseline, CapturedFrame& out) {
-    const auto start = Clock::now();
+    return WaitForStableFrame(baseline, out, {
+        [] { return Clock::now(); },
+        [this](uint64_t afterFrameId, CapturedFrame& frame, double timeoutMs) {
+            return WaitForFrameReference(afterFrameId, frame, timeoutMs);
+        }});
+}
+
+bool MacFrameSource::WaitForStableFrame(const CaptureBaseline& baseline, CapturedFrame& out,
+                                       const StableFrameWait& wait) {
+    const auto start = wait.now();
     const auto deadline = start + std::chrono::duration<double, std::milli>(m_config.settleTimeoutMs);
     const auto quietPeriod = std::chrono::duration<double, std::milli>(m_config.quietPeriodMs);
     uint64_t lastSeen = baseline.frame.frameId;
@@ -486,15 +495,15 @@ bool MacFrameSource::WaitForStableFrame(const CaptureBaseline& baseline, Capture
             wakeAt = std::min(deadline, quietSince + quietPeriod);
         }
         const double remainMs = std::max(0.0,
-            std::chrono::duration<double, std::milli>(wakeAt - Clock::now()).count());
+            std::chrono::duration<double, std::milli>(wakeAt - wait.now()).count());
         CapturedFrame cur;
-        if (WaitForFrameReference(lastSeen, cur, remainMs)) {
+        if (wait.nextFrame(lastSeen, cur, remainMs)) {
             lastSeen = cur.frameId;
             if (cur.displayTime > baseline.notBefore) {
                 // 与固定参考帧比较，不能只比较相邻帧，否则缓慢动画会累积漂移。
                 if (!haveFrame || !IsFrameStable(view(quietReference), view(cur), m_config.stability)) {
                     quietReference = cur;
-                    quietSince = Clock::now();
+                    quietSince = wait.now();
                 }
                 responded = responded || (baseline.frame.View().data &&
                     !IsFrameStable(view(baseline.frame), view(cur), m_config.stability));
@@ -506,9 +515,9 @@ bool MacFrameSource::WaitForStableFrame(const CaptureBaseline& baseline, Capture
             std::lock_guard<std::mutex> lock(m_frameMutex);
             if (m_streamFailed) return false;
             // 超时边缘如果已有新样本，先处理它，不能把上一个画面提前提交。
-            if (m_latestFrameId > lastSeen && Clock::now() < deadline) continue;
+            if (m_latestFrameId > lastSeen && wait.now() < deadline) continue;
         }
-        const auto now = Clock::now();
+        const auto now = wait.now();
         const bool quiet = haveFrame && now - quietSince >= quietPeriod;
         if (haveFrame && ((responded && quiet) || now >= deadline)) {
             // 未见响应时等满窗口才可判无变化；没有任何新样本不能拿缓存冒充成功。

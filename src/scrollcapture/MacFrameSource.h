@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -11,6 +12,8 @@
 #include "scrollcapture/FrameStability.h"
 
 namespace shotlet {
+
+namespace TestUtils { class MacFrameTimeline; }
 
 // 采集输出帧：RGBA 紧凑排列（pitch == width*4），独占或不可变共享像素。
 struct CapturedFrame {
@@ -77,6 +80,15 @@ public:
     MacFrameSource& operator=(const MacFrameSource&) = delete;
 
 private:
+    friend class TestUtils::MacFrameTimeline;
+    // 生产使用真实时钟和条件变量；测试控制时间与帧顺序，避免调度延迟改变测试场景。
+    struct StableFrameWait {
+        std::function<std::chrono::steady_clock::time_point()> now;
+        std::function<bool(uint64_t, CapturedFrame&, double)> nextFrame;
+    };
+    bool WaitForStableFrame(const CaptureBaseline& baseline, CapturedFrame& out,
+                            const StableFrameWait& wait);
+
     // ObjC 对象桥接（照抄 CaptureMacOS_SC.h 的 void* 手法，头文件保持纯 C++）
     void* m_stream = nullptr;   // SCStream*
     void* m_output = nullptr;   // MacFrameSourceStreamOutput*
