@@ -1,0 +1,84 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS build and tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get pinned dependencies
+        run: |
+          git clone --branch release-3.4.18 --depth 1 https://github.com/libsdl-org/SDL.git sdl3
+          git clone https://github.com/ocornut/imgui.git imgui
+          git -C imgui checkout e05bd9deb9a73b67acb5c04b8a581e06a2d42657
+
+      - name: Install test dependency
+        run: brew install googletest
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DSDL3_DIR="$PWD/sdl3"
+          -DIMGUI_DIR="$PWD/imgui"
+          -DSHOTLET_BUILD_TESTS=ON
+          -DSHOTLET_BUILD_NODE_ADDON=OFF
+          "-DGTest_DIR=$(brew --prefix googletest)/lib/cmake/GTest"
+
+      - name: Build
+        run: cmake --build build --parallel 4
+
+      - name: Test
+        run: >-
+          ctest --test-dir build --output-on-failure --timeout 120
+          -E "history_tests|history_window_tests|history_window_lifecycle_tests|recording_native_tests|settings_window_tests|clipboard_copy_tests|scroll_capture_output_tests"
+
+  windows:
+    name: Windows build and tests
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get pinned dependencies
+        shell: pwsh
+        run: |
+          git clone --branch release-3.4.18 --depth 1 https://github.com/libsdl-org/SDL.git sdl3
+          git clone https://github.com/ocornut/imgui.git imgui
+          git -C imgui checkout e05bd9deb9a73b67acb5c04b8a581e06a2d42657
+
+      - name: Install vcpkg and GoogleTest
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          & (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat") -disableMetrics
+          & (Join-Path $vcpkgRoot "vcpkg.exe") install gtest:x64-windows
+          "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+          '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>DLL'
+          -DSDL3_DIR="$PWD/sdl3"
+          -DIMGUI_DIR="$PWD/imgui"
+          -DSHOTLET_BUILD_TESTS=ON
+          -DSHOTLET_BUILD_NODE_ADDON=OFF
+
+      - name: Build
+        run: cmake --build build --config Debug --parallel 4
+
+      - name: Test
+        run: ctest --test-dir build -C Debug --output-on-failure --timeout 120

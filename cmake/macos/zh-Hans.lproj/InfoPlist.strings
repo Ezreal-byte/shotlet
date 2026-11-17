@@ -1,0 +1,5 @@
+"NSScreenCaptureUsageDescription" = "Shotlet 需要屏幕录制权限，以截取屏幕画面并录制选区和系统声音。";
+"NSMicrophoneUsageDescription" = "Shotlet 需要麦克风权限，以在屏幕录制中加入你的声音。";
+"NSCameraUsageDescription" = "Shotlet 需要摄像头权限，以在屏幕录制中加入实时摄像头画面。";
+"NSAppleEventsUsageDescription" = "Shotlet 可能打开系统设置，帮助你授予屏幕录制和辅助功能权限。";
+"NSAccessibilityUsageDescription" = "Shotlet 需要辅助功能权限，以使用全局快捷键和监听滚动截图输入。";

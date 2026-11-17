@@ -1,0 +1,76 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows",
+      "displayName": "Windows x64",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "IMGUI_DIR": "${sourceDir}/imgui",
+        "SDL3_DIR": "${sourceDir}/sdl3",
+        "SHOTLET_BUILD_TESTS": "OFF",
+        "SHOTLET_BUILD_NODE_ADDON": "OFF"
+      }
+    },
+    {
+      "name": "windows-vcpkg-tests",
+      "displayName": "Windows x64 vcpkg tests",
+      "inherits": "windows",
+      "binaryDir": "${sourceDir}/build-vcpkg-tests",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
+        "SHOTLET_BUILD_TESTS": "ON",
+        "SHOTLET_BUILD_NODE_ADDON": "OFF"
+      }
+    },
+    {
+      "name": "windows-vcpkg-all",
+      "displayName": "Windows x64 vcpkg all",
+      "inherits": "windows",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "SHOTLET_BUILD_TESTS": "ON",
+        "SHOTLET_BUILD_NODE_ADDON": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "configuration": "Release",
+      "targets": [
+        "shotlet"
+      ]
+    },
+    {
+      "name": "windows-vcpkg-tests",
+      "configurePreset": "windows-vcpkg-tests",
+      "configuration": "Debug",
+      "targets": [
+        "shotlet_tests"
+      ]
+    },
+    {
+      "name": "windows-vcpkg-all",
+      "configurePreset": "windows-vcpkg-all",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-vcpkg-tests",
+      "configurePreset": "windows-vcpkg-tests",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

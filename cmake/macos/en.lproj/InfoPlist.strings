@@ -1,0 +1,5 @@
+"NSScreenCaptureUsageDescription" = "Shotlet needs Screen Recording permission to capture screenshots and record selected screen areas with system audio.";
+"NSMicrophoneUsageDescription" = "Shotlet needs microphone access to include your voice in screen recordings.";
+"NSCameraUsageDescription" = "Shotlet needs camera access to include a live camera overlay in screen recordings.";
+"NSAppleEventsUsageDescription" = "Shotlet may open macOS System Settings to help you grant Screen Recording and Accessibility permissions.";
+"NSAccessibilityUsageDescription" = "Shotlet needs Accessibility permission for global hotkeys and scroll capture input monitoring.";

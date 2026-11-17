@@ -1,0 +1,6 @@
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -74,2 +74,2 @@
+-#define SDL_DYNAMIC_API 1
++#define SDL_DYNAMIC_API 0
+ #endif

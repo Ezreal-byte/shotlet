@@ -1,0 +1,10 @@
+# nlohmann/json
+
+固定版本：v3.11.3，采用官方单头文件方式接入，仅在 DocumentCodec.cpp 中包含。
+来源：https://github.com/nlohmann/json/tree/v3.11.3
+许可证：MIT，见 LICENSE.MIT。
+
+SHA-256：
+
+- json.hpp：9bea4c8066ef4a1c206b2be5a36302f8926f7fdc6087af5d20b417d0cf103ea6
+- LICENSE.MIT：86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14

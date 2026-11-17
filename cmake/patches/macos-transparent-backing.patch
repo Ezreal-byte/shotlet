@@ -1,0 +1,15 @@
+--- a/src/video/cocoa/SDL_cocoawindow.m
++++ b/src/video/cocoa/SDL_cocoawindow.m
+@@ -2174,3 +2174,5 @@
+-    BOOL transparent = (_sdlWindow->flags & SDL_WINDOW_TRANSPARENT) != 0;
++    // SDL_GPU 拒绝透明窗口标志，宿主可能在 claim 后通过 NSWindow 设置透明。
++    // 重绘必须遵从实际窗口状态，避免释放 Metal 子视图时露出不透明黑底。
++    BOOL transparent = (_sdlWindow->flags & SDL_WINDOW_TRANSPARENT) != 0 || (self.window && !self.window.opaque);
+     if ([NSGraphicsContext currentContext]) {
+         NSColor *fillColor = transparent ? [NSColor clearColor] : [NSColor blackColor];
+@@ -2198,3 +2200,4 @@
+-    BOOL transparent = (_sdlWindow->flags & SDL_WINDOW_TRANSPARENT) != 0;
++    // 与 drawRect 保持一致，原生透明设置也必须作用于 backing layer。
++    BOOL transparent = (_sdlWindow->flags & SDL_WINDOW_TRANSPARENT) != 0 || (self.window && !self.window.opaque);
+     CFStringRef color = transparent ? kCGColorClear : kCGColorBlack;
+     self.layer.backgroundColor = CGColorGetConstantColor(color);

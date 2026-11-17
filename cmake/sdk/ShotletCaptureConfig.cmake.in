@@ -1,0 +1,21 @@
+get_filename_component(_shotlet_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+if(NOT TARGET Shotlet::Capture)
+    find_package(Threads REQUIRED)
+    add_library(Shotlet::Capture STATIC IMPORTED)
+    set_target_properties(Shotlet::Capture PROPERTIES
+        IMPORTED_LOCATION "${_shotlet_prefix}/lib/@SDK_LIBRARY@"
+        IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+        INTERFACE_INCLUDE_DIRECTORIES "${_shotlet_prefix}/include"
+        INTERFACE_LINK_LIBRARIES "${_shotlet_prefix}/lib/@CORE_LIBRARY@;${_shotlet_prefix}/lib/@SDL_LIBRARY@;Threads::Threads;${CMAKE_DL_LIBS}")
+    if(APPLE)
+        foreach(_framework Cocoa IOKit CoreFoundation CoreGraphics CoreText Foundation ScreenCaptureKit
+                CoreVideo CoreMedia AVFoundation AVKit CoreImage Carbon Vision Accelerate Metal QuartzCore UniformTypeIdentifiers)
+            find_library(_shotlet_${_framework} ${_framework} REQUIRED)
+            set_property(TARGET Shotlet::Capture APPEND PROPERTY INTERFACE_LINK_LIBRARIES "${_shotlet_${_framework}}")
+        endforeach()
+    elseif(WIN32)
+        set_property(TARGET Shotlet::Capture APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+            dwmapi shcore gdi32 gdiplus user32 ole32 oleaut32 windowscodecs comdlg32 shell32 imm32 setupapi
+            advapi32 winmm version comctl32 windowsapp mf mfplat mfreadwrite mfuuid uuid)
+    endif()
+endif()
