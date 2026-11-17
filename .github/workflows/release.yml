@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Validate version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test packaging rules
+        run: python -B tests/test_release_package.py
+      - name: Check tag against CMake version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: |
+          version=$(python scripts/package-release.py --print-version --tag "$RELEASE_TAG")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: windows-x64
+          - runner: macos-15
+            platform: macos-arm64
+            architecture: arm64
+          - runner: macos-15-intel
+            platform: macos-x64
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Get pinned dependencies
+        run: |
+          git clone --branch release-3.4.18 --depth 1 https://github.com/libsdl-org/SDL.git sdl3
+          git clone https://github.com/ocornut/imgui.git imgui
+          git -C imgui checkout e05bd9deb9a73b67acb5c04b8a581e06a2d42657
+
+      - name: Configure macOS
+        if: runner.os == 'macOS'
+        env:
+          BUILD_ARCH: ${{ matrix.architecture }}
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="$BUILD_ARCH"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3
+          -DSHOTLET_BUILD_TESTS=OFF
+          -DSHOTLET_BUILD_NODE_ADDON=OFF
+          -DSHOTLET_BUILD_CAPTURE_SDK=OFF
+
+      - name: Configure Windows
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          -DSHOTLET_BUILD_TESTS=OFF
+          -DSHOTLET_BUILD_NODE_ADDON=OFF
+          -DSHOTLET_BUILD_CAPTURE_SDK=OFF
+
+      - name: Build Release app
+        run: cmake --build build --config Release --target shotlet --parallel 4
+
+      - name: Package app and licenses
+        env:
+          PACKAGE_PLATFORM: ${{ matrix.platform }}
+        run: python scripts/package-release.py --build-dir build --platform "$PACKAGE_PLATFORM"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shotlet-${{ needs.version.outputs.version }}-${{ matrix.platform }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: [version, build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shotlet-${{ needs.version.outputs.version }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify and publish all packages
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat *.sha256 > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          # 先上传到草稿，确保全部附件上传成功后才公开。
+          gh release create "$RELEASE_TAG" *.zip SHA256SUMS \
+            --verify-tag --generate-notes --title "Shotlet $RELEASE_TAG" --draft
+          gh release edit "$RELEASE_TAG" --draft=false

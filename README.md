@@ -10,7 +10,7 @@
 
 Shotlet is built with C++20, SDL3, Dear ImGui, and SDL_GPU. Windows and macOS are the supported desktop platforms. The project also provides a Node-API addon for Electron and a C SDK for Go, C, and C++ hosts.
 
-Prebuilt installers are not available yet. Build Shotlet from source using the instructions below. Linux has partial build support, but desktop capture and system integration are incomplete and Linux is not an officially supported platform.
+Version tags trigger GitHub Actions builds of portable ZIP packages for Windows x64, macOS Apple Silicon, and macOS Intel. Once a release is published, download the matching ZIP and `SHA256SUMS` from the repository's Releases page. Extract the Windows package and run `shotlet.exe`; on macOS, move `shotlet.app` to Applications. macOS packages use ad-hoc signing and are not notarized; Windows packages are unsigned. See [RELEASING.md](RELEASING.md) for the release process, or build from source below. Linux has partial build support, but desktop capture and system integration are incomplete and Linux is not an officially supported platform.
 
 <table>
   <tr>
