@@ -12,6 +12,10 @@
 
 Shotlet 使用 C++20、SDL3、Dear ImGui 和 SDL_GPU 构建，支持 Windows 与 macOS，并提供可供 Electron/Node.js 主进程加载的 Node-API addon，以及供 Go、C、C++ 宿主集成的截图 SDK。
 
+**小巧便携，解压即用。** 整个应用打包后只有 1–2 MB 左右（v0.1.0），不用安装，也没有常驻后台。
+
+**完全离线，数据只属于你。** Shotlet 不连接任何服务器：不上传、不收集遥测、不要账号、没有云同步。截图、录屏、OCR 结果、历史记录和设置，全部只留在你自己的电脑上。
+
 推送版本标签后，GitHub Actions 会自动构建 Windows x64、macOS Apple Silicon 和 macOS Intel 的便携 ZIP 包。版本发布后，可在仓库的 Releases 页面下载对应 ZIP 和 `SHA256SUMS` 校验文件。Windows 解压后运行 `shotlet.exe`；macOS 将 `shotlet.app` 移入“应用程序”。macOS 产物采用临时签名（ad-hoc），尚未公证；Windows 产物未做代码签名。发布流程见 [RELEASING.md](RELEASING.md)，也可按下方说明从源码构建。
 
 <table>
