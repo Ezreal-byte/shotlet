@@ -639,7 +639,7 @@ namespace shotlet {
             if (m_cropActive) {
                 const auto crop = m_transform.ToScreen(m_cropRect);
                 list->PushClipRect(m_viewport.Min, m_viewport.Max, true);
-                list->AddRect(crop.Min, crop.Max, GetThemePalette(m_config.theme).accent, 0, 0, 2);
+                list->AddRect(crop.Min, crop.Max, GetThemePalette(m_config.theme).accent, 0.0f, ImDrawFlags_None, 2.0f);
                 list->PopClipRect();
             }
             ImGui::EndChild();

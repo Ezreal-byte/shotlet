@@ -11,10 +11,9 @@ logs
 
 *.lh
 *debug_*
-*docs
 # 截图 SDK 文档会被导出脚本打包，必须入库
-!docs/
 docs/*
+!docs/capture-sdk.md
 .idea
 test.go
 .DS_Store
