@@ -7,6 +7,7 @@
 #include "ui/SubToolbar.h"
 #include "core/Canvas.h"
 #include <gtest/gtest.h>
+#include <cstring>
 #include <cmath>
 #include <vector>
 #include <chrono>

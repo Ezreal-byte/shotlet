@@ -1,6 +1,9 @@
 #include "FontProvider.h"
 
 namespace shotlet {
+    std::vector<const unsigned char*> GetCachedFontData() { return {}; }
+    std::vector<int> GetCachedFontDataSizes() { return {}; }
+
     std::vector<std::string> GetChineseFontPaths() {
         return {};
     }

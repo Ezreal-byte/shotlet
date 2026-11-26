@@ -7,22 +7,23 @@
 #include "ScreenOverlay.h"
 #include "core/Canvas.h"
 #include "core/CursorManager.h"
-#include "ui/Toolbar.h"
-#include "ui/SubToolbar.h"
-#include "platform/TransparentWindow.h"
-#include "platform/FontProvider.h"
-#include "platform/FileService.h"
-#include "utils/Logger.h"
 #include "platform/Appearance.h"
+#include "platform/FileService.h"
+#include "platform/FontProvider.h"
+#include "platform/TransparentWindow.h"
 #include "recording/ScreenRecorder.h"
+#include "ui/ImGuiRendererFrame.h"
+#include "ui/SubToolbar.h"
+#include "ui/Toolbar.h"
+#include "utils/Logger.h"
 
-#include <chrono>
-#include <algorithm>
-#include <cmath>
-#include <cstring>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_keycode.h>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstring>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
@@ -35,10 +36,11 @@ namespace shotlet {
 
     float ScreenOverlay::ClampedUIScale(float scaleFactor) {
 #if defined(SHOTLET_PLATFORM_WINDOWS)
-        if (!std::isfinite(scaleFactor)) return 1.0f;
+        if (!std::isfinite(scaleFactor))
+            return 1.0f;
         return std::clamp(scaleFactor, 1.0f, 3.0f);
 #else
-        (void)scaleFactor;
+        (void) scaleFactor;
         return 1.0f;
 #endif
     }
@@ -47,25 +49,26 @@ namespace shotlet {
 
     void ScreenOverlay::SetTheme(Theme theme) {
         m_config.theme = theme;
-        if (m_toolbar) m_toolbar->SetTheme(theme);
-        if (m_subToolbar) m_subToolbar->SetTheme(theme);
+        if (m_toolbar)
+            m_toolbar->SetTheme(theme);
+        if (m_subToolbar)
+            m_subToolbar->SetTheme(theme);
         if (m_imguiContext) {
-            ImGuiContext* previous = ImGui::GetCurrentContext();
+            ImGuiContext *previous = ImGui::GetCurrentContext();
             ImGui::SetCurrentContext(m_imguiContext);
             ApplyImGuiTheme(ImGui::GetStyle(), theme);
             ImGui::SetCurrentContext(previous);
         }
         ApplyWindowTheme(m_sdlWindow, theme);
 #if defined(SHOTLET_PLATFORM_MACOS) || defined(SHOTLET_PLATFORM_WINDOWS)
-        if (m_scrollCapture) m_scrollCapture->SetTheme(theme);
+        if (m_scrollCapture)
+            m_scrollCapture->SetTheme(theme);
 #endif
     }
 
-    ScreenOverlay::~ScreenOverlay() {
-        Destroy();
-    }
+    ScreenOverlay::~ScreenOverlay() { Destroy(); }
 
-    bool ScreenOverlay::PreCreate(const Config& config) {
+    bool ScreenOverlay::PreCreate(const Config &config) {
         if (m_preCreated) {
             Logger::Warning("[ScreenOverlay] Already pre-created, destroy first");
             return false;
@@ -115,7 +118,7 @@ namespace shotlet {
         }
         auto t_imgui = std::chrono::high_resolution_clock::now();
 
-        ImGui_ImplSDLGPU3_NewFrame();
+        NewImGuiRendererFrame(m_gpuDevice);
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ImGui::EndFrame();
@@ -128,8 +131,7 @@ namespace shotlet {
         Logger::Debug("[ScreenOverlay] PreCreate: config={}x{}, scaleFactor={:.2f}, "
                       "SDL_GetWindowSize={}x{}, SDL_GetWindowSizeInPixels={}x{}, "
                       "ImGui DisplaySize={}x{}",
-                      config.windowWidth, config.windowHeight, config.scaleFactor,
-                      sdlWinW, sdlWinH, sdlPixW, sdlPixH,
+                      config.windowWidth, config.windowHeight, config.scaleFactor, sdlWinW, sdlWinH, sdlPixW, sdlPixH,
                       displaySize.x, displaySize.y);
 
         Logger::Debug("[ScreenOverlay] PreCreate timing: CreateNativeWindow={:.1f}ms, "
@@ -146,8 +148,8 @@ namespace shotlet {
         return true;
     }
 
-    bool ScreenOverlay::SetCaptureData(std::unique_ptr<unsigned char[]> imageData,
-                                        int pixelWidth, int pixelHeight, int rowPitch) {
+    bool ScreenOverlay::SetCaptureData(std::unique_ptr<unsigned char[]> imageData, int pixelWidth, int pixelHeight,
+                                       int rowPitch) {
         if (!m_preCreated) {
             Logger::Error("[ScreenOverlay] Must PreCreate before SetCaptureData");
             return false;
@@ -160,7 +162,8 @@ namespace shotlet {
         // swapchain 在上次 ResetForReuse 时已释放，
         // 这里（首次 GPU 使用之前）重新 claim；失败则中止本次截图会话，
         // 否则后续每帧 swapchain 获取都会失败（有底图无 UI）
-        if (!EnsureGPUWindowClaimed()) return false;
+        if (!EnsureGPUWindowClaimed())
+            return false;
 
         auto t0 = std::chrono::high_resolution_clock::now();
 
@@ -178,35 +181,34 @@ namespace shotlet {
         }
         auto t_gpu_upload = std::chrono::high_resolution_clock::now();
 
-        ImTextureID texId = (ImTextureID)(intptr_t)m_gpuScreenshotTexture;
+        ImTextureID texId = (ImTextureID) (intptr_t) m_gpuScreenshotTexture;
 
-        canvas->SetScreenshot(texId,
-                              ImVec2(static_cast<float>(pixelWidth), static_cast<float>(pixelHeight)),
+        canvas->SetScreenshot(texId, ImVec2(static_cast<float>(pixelWidth), static_cast<float>(pixelHeight)),
                               displaySize);
-        canvas->SetScreenshotOwned(texId,
-                                   ImVec2(static_cast<float>(pixelWidth), static_cast<float>(pixelHeight)),
-                                   displaySize,
-                                   std::move(imageData),
-                                   rowPitch);
+        canvas->SetScreenshotOwned(texId, ImVec2(static_cast<float>(pixelWidth), static_cast<float>(pixelHeight)),
+                                   displaySize, std::move(imageData), rowPitch);
 
         // 设置纹理更新回调（用于马赛克/撤销等操作后更新纹理）
         // 回调只累积脏区（MergeDirtyRegion），实际 GPU 上传延迟到本帧
         // RenderFrame 开头统一执行（FlushDirtyRegion），避免高频鼠标事件
         // 每次都创建/提交 GPU command buffer
-        canvas->SetTextureUpdateCallback([this](const Canvas::TextureUpdateRegion* dirtyRegion) {
-            if (!m_canvas || !m_gpuScreenshotTexture) return;
+        canvas->SetTextureUpdateCallback([this](const Canvas::TextureUpdateRegion *dirtyRegion) {
+            if (!m_canvas || !m_gpuScreenshotTexture)
+                return;
             ImVec2 size = m_canvas->GetScreenshotSize();
 
             int imgWidth = static_cast<int>(size.x);
             int imgHeight = static_cast<int>(size.y);
-            if (imgWidth <= 0 || imgHeight <= 0) return;
+            if (imgWidth <= 0 || imgHeight <= 0)
+                return;
 
             if (dirtyRegion && dirtyRegion->IsValid()) {
                 int uploadX = std::clamp(dirtyRegion->x, 0, imgWidth);
                 int uploadY = std::clamp(dirtyRegion->y, 0, imgHeight);
                 int uploadW = std::min(dirtyRegion->width, imgWidth - uploadX);
                 int uploadH = std::min(dirtyRegion->height, imgHeight - uploadY);
-                if (uploadW <= 0 || uploadH <= 0) return;
+                if (uploadW <= 0 || uploadH <= 0)
+                    return;
                 MergeDirtyRegion(uploadX, uploadY, uploadW, uploadH);
             } else {
                 // 全图刷新
@@ -220,19 +222,36 @@ namespace shotlet {
         toolbar->SetCanvas(canvas.get());
         toolbar->SetTooltipFont(m_tooltipFont);
         toolbar->SetUIScale(uiScale);
+#if defined(SHOTLET_PLATFORM_LINUX)
+        if (!m_gpuDevice) toolbar->SetSoftwareRenderer(SDL_GetRenderer(m_sdlWindow));
+#endif
         toolbar->SetConfirmCallback([this]() {
             Logger::Info("event=capture.confirm_clicked source=overlay");
             m_hasResult = true;
         });
         toolbar->SetCancelCallback([this]() { m_shouldClose = true; });
-        toolbar->SetSaveCallback([this]() { m_saveRequested = true; m_hasResult = true; });
-        toolbar->SetPinCallback([this]() { m_pinRequested = true; m_hasResult = true; });
-        toolbar->SetOcrCallback([this]() { m_ocrRequested = true; m_hasResult = true; });
+        toolbar->SetSaveCallback([this]() {
+            m_saveRequested = true;
+            m_hasResult = true;
+        });
+#if !defined(SHOTLET_PLATFORM_LINUX)
+        toolbar->SetPinCallback([this]() {
+            m_pinRequested = true;
+            m_hasResult = true;
+        });
+        toolbar->SetOcrCallback([this]() {
+            m_ocrRequested = true;
+            m_hasResult = true;
+        });
+#endif
 #if defined(SHOTLET_PLATFORM_MACOS) || defined(SHOTLET_PLATFORM_WINDOWS)
         toolbar->SetScrollCallback([this]() { m_scrollRequested = true; });
         // 录屏能力不足（如 macOS 15 以下）时不注册回调，工具栏不会显示录屏入口。
         if (IsScreenRecordingSupported()) {
-            toolbar->SetRecordCallback([this]() { m_recordRequested = true; m_hasResult = true; });
+            toolbar->SetRecordCallback([this]() {
+                m_recordRequested = true;
+                m_hasResult = true;
+            });
         }
 #endif
 
@@ -260,8 +279,7 @@ namespace shotlet {
         Logger::Debug("[ScreenOverlay] SetCaptureData[{}x{}] timing: "
                       "Canvas={:.1f}ms, GPU upload={:.1f}ms, Toolbar={:.1f}ms, "
                       "Cursor/Smart={:.1f}ms, total={:.1f}ms",
-                      pixelWidth, pixelHeight,
-                      std::chrono::duration<float, std::milli>(t_canvas - t0).count(),
+                      pixelWidth, pixelHeight, std::chrono::duration<float, std::milli>(t_canvas - t0).count(),
                       std::chrono::duration<float, std::milli>(t_gpu_upload - t_canvas).count(),
                       std::chrono::duration<float, std::milli>(t_toolbar - t_gpu_upload).count(),
                       std::chrono::duration<float, std::milli>(t_end - t_toolbar).count(),
@@ -307,7 +325,8 @@ namespace shotlet {
 #if defined(SHOTLET_PLATFORM_MACOS) || defined(SHOTLET_PLATFORM_WINDOWS)
         m_scrollCapture.reset();
 #endif
-        if (!m_preCreated && !m_created) return;
+        if (!m_preCreated && !m_created)
+            return;
 
         Logger::Debug("[ScreenOverlay] Destroy begin display={}", m_config.displayId);
         Hide();
@@ -358,7 +377,8 @@ namespace shotlet {
         m_pendingScrollResult.reset();
         m_scrollMessage.clear();
 #endif
-        if (!m_preCreated && !m_created) return;
+        if (!m_preCreated && !m_created)
+            return;
 
         Logger::Debug("[ScreenOverlay] ResetForReuse begin display={}", m_config.displayId);
         Hide();
@@ -377,7 +397,7 @@ namespace shotlet {
         ReleaseGPUWindowClaim();
 #endif
 
-        m_hidden = false;  // daemon 复用：解除编辑器接管时的隐藏状态，恢复渲染
+        m_hidden = false; // daemon 复用：解除编辑器接管时的隐藏状态，恢复渲染
         m_created = false;
         m_hasResult = false;
         m_shouldClose = false;
@@ -400,7 +420,8 @@ namespace shotlet {
 
     void ScreenOverlay::ReleaseGPUWindowClaim() {
 #if !defined(SHOTLET_PLATFORM_WINDOWS)
-        if (!m_gpuWindowClaimed || !m_gpuDevice || !m_sdlWindow) return;
+        if (!m_gpuWindowClaimed || !m_gpuDevice || !m_sdlWindow)
+            return;
 
         // 等待在途的 present/渲染完成，避免释放仍被引用的 drawable
         SDL_WaitForGPUIdle(m_gpuDevice);
@@ -413,7 +434,8 @@ namespace shotlet {
     bool ScreenOverlay::EnsureGPUWindowClaimed() {
 #if !defined(SHOTLET_PLATFORM_WINDOWS)
         // 无需重新 claim（已 claim 或无 GPU 设备/窗口，后者由后续步骤失败暴露）
-        if (m_gpuWindowClaimed || !m_gpuDevice || !m_sdlWindow) return true;
+        if (m_gpuWindowClaimed || !m_gpuDevice || !m_sdlWindow)
+            return true;
 
         auto t0 = std::chrono::high_resolution_clock::now();
         if (!SDL_ClaimWindowForGPUDevice(m_gpuDevice, m_sdlWindow)) {
@@ -421,31 +443,36 @@ namespace shotlet {
             return false;
         }
         m_gpuWindowClaimed = true;
-        SDL_SetGPUSwapchainParameters(m_gpuDevice, m_sdlWindow,
-                                       SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
-                                       SDL_GPU_PRESENTMODE_VSYNC);
+        SDL_SetGPUSwapchainParameters(m_gpuDevice, m_sdlWindow, SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+                                      SDL_GPU_PRESENTMODE_VSYNC);
 #if defined(SHOTLET_PLATFORM_MACOS)
-        ConfigureWindowTransparent(m_sdlWindow);  // 重新创建的 Metal 图层必须恢复透明。
-        ApplyGpuBufferCount();  // 新 swapchain 会重建 CAMetalLayer，需重新应用缓冲数
+        ConfigureWindowTransparent(m_sdlWindow); // 重新创建的 Metal 图层必须恢复透明。
+        ApplyGpuBufferCount(); // 新 swapchain 会重建 CAMetalLayer，需重新应用缓冲数
 #endif
         auto t1 = std::chrono::high_resolution_clock::now();
-        Logger::Debug("[ScreenOverlay] window re-claimed for GPU device display={} cost={:.1f}ms",
-                      m_config.displayId,
+        Logger::Debug("[ScreenOverlay] window re-claimed for GPU device display={} cost={:.1f}ms", m_config.displayId,
                       std::chrono::duration<float, std::milli>(t1 - t0).count());
         return true;
 #else
-        return true;  // Windows 不做 swapchain 回收，视为已 claim
+        return true; // Windows 不做 swapchain 回收，视为已 claim
 #endif
     }
 
     void ScreenOverlay::ReleaseCaptureResources(bool abandonCanvasOnWindows) {
         Logger::Debug("[ScreenOverlay] ReleaseCaptureResources begin display={}", m_config.displayId);
+#if defined(SHOTLET_PLATFORM_LINUX)
+        if (!m_gpuDevice && m_gpuScreenshotTexture) {
+            SDL_DestroyTexture(static_cast<SDL_Texture *>(m_gpuScreenshotTexture));
+            m_gpuScreenshotTexture = nullptr;
+        }
+#endif
         if (m_gpuDevice && m_gpuScreenshotTexture) {
 #if !defined(SHOTLET_PLATFORM_WINDOWS)
             SDL_WaitForGPUIdle(m_gpuDevice);
-            SDL_ReleaseGPUTexture(m_gpuDevice, static_cast<SDL_GPUTexture*>(m_gpuScreenshotTexture));
+            SDL_ReleaseGPUTexture(m_gpuDevice, static_cast<SDL_GPUTexture *>(m_gpuScreenshotTexture));
 #else
-            Logger::Debug("[ScreenOverlay] ReleaseCaptureResources skip GPU texture release on Windows display={}", m_config.displayId);
+            Logger::Debug("[ScreenOverlay] ReleaseCaptureResources skip GPU texture release on Windows display={}",
+                          m_config.displayId);
 #endif
             m_gpuScreenshotTexture = nullptr;
         }
@@ -456,10 +483,10 @@ namespace shotlet {
         Logger::Debug("[ScreenOverlay] ReleaseCaptureResources reset canvas display={}", m_config.displayId);
 #if defined(SHOTLET_PLATFORM_WINDOWS)
         if (abandonCanvasOnWindows) {
-            (void)m_canvas.release();
+            (void) m_canvas.release();
         } else
 #endif
-        m_canvas.reset();
+            m_canvas.reset();
         Logger::Debug("[ScreenOverlay] ReleaseCaptureResources reset toolbar display={}", m_config.displayId);
         m_toolbar.reset();
         Logger::Debug("[ScreenOverlay] ReleaseCaptureResources reset subToolbar display={}", m_config.displayId);
@@ -474,16 +501,21 @@ namespace shotlet {
 
     bool ScreenOverlay::IsMouseInWindow() const {
 #if defined(SHOTLET_PLATFORM_WINDOWS)
-        if (!m_sdlWindow) return false;
+        if (!m_sdlWindow)
+            return false;
         SDL_PropertiesID props = SDL_GetWindowProperties(m_sdlWindow);
-        HWND hwnd = reinterpret_cast<HWND>(SDL_GetPointerProperty(
-            props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
-        if (!hwnd) return false;
-        POINT pt; GetCursorPos(&pt); ScreenToClient(hwnd, &pt);
-        RECT rc; GetClientRect(hwnd, &rc);
+        HWND hwnd = reinterpret_cast<HWND>(SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+        if (!hwnd)
+            return false;
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(hwnd, &pt);
+        RECT rc;
+        GetClientRect(hwnd, &rc);
         return PtInRect(&rc, pt);
 #else
-        if (!m_sdlWindow) return false;
+        if (!m_sdlWindow)
+            return false;
         uint32_t flags = SDL_GetWindowFlags(m_sdlWindow);
         return (flags & SDL_WINDOW_MOUSE_FOCUS) != 0;
 #endif
@@ -506,9 +538,7 @@ namespace shotlet {
 #endif
     }
 
-    void ScreenOverlay::ForceActivate() {
-        ForceWindowFocus(m_sdlWindow);
-    }
+    void ScreenOverlay::ForceActivate() { ForceWindowFocus(m_sdlWindow); }
 
     void ScreenOverlay::RemoveDim() { m_dimmed = false; }
 

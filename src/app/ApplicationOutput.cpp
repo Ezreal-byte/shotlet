@@ -98,6 +98,14 @@ namespace shotlet {
     }
 
     void Application::OnCaptureFinished(bool success) {
+#if defined(SHOTLET_PLATFORM_LINUX)
+        // The standalone Linux preview completes through PNG export. Host/SDK
+        // mode keeps returning pixels and never acquires the system clipboard.
+        if (success && !m_hostCaptureOutput && !m_embeddedMode) {
+            OnSaveRequested();
+            return;
+        }
+#endif
         const auto confirmed = std::chrono::steady_clock::now();
         Logger::Debug("[OnCaptureFinished] begin success={}", success);
         m_exitCode = success ? ExitSuccess : ExitCancelled;
@@ -206,15 +214,18 @@ namespace shotlet {
             std::string path =
                     SaveFileWithDialog(renderResult.data.get(), renderResult.width, renderResult.height, m_language);
             if (!path.empty()) {
+                m_exitCode = ExitSuccess;
                 m_hostActionHandled = true;
                 if (m_history)
                     m_history->Finish(std::move(m_outputHistoryCandidate));
                 Logger::Info("[OnSaveRequested] event=image.saved");
             } else {
+                m_exitCode = ExitCancelled;
                 Logger::Info("[OnSaveRequested] Save cancelled by user");
             }
         } else {
             Logger::Error("[OnSaveRequested] FBORenderer failed to produce output");
+            m_exitCode = ExitError;
         }
 
         m_outputHistoryCandidate.reset();

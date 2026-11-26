@@ -7,6 +7,10 @@
 
 namespace shotlet {
 
+void ConfigureWindowTransparent(SDL_Window*) {
+    // The X11 capture is drawn as an opaque SDL_GPU background; no native backdrop is needed.
+}
+
 void SetWindowTransparent(SDL_Window* window) {
     // Linux 透明窗口通过 SDL_GPU 渲染实现
     // 不需要额外操作

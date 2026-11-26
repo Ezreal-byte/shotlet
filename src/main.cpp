@@ -4,6 +4,8 @@
 #include "utils/Logger.h"
 #include <exception>
 #include <stdexcept>
+#include <cstdio>
+#include <string_view>
 
 namespace {
 
@@ -27,6 +29,23 @@ int RunApplication(int argc, char** argv) {
 }
 
 int Run(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view argument(argv[i]);
+        if (argument == "--version") {
+            std::printf("Shotlet %s\n", SHOTLET_VERSION);
+            return 0;
+        }
+        if (argument == "--help" || argument == "-h") {
+            std::puts("Shotlet - screenshot and annotation tool\n"
+                      "Usage: shotlet [--language auto|zh-CN|en] [--theme auto|light|dark]\n"
+                      "               [--log-dir PATH] [--log-level debug|info|warn|error]\n"
+                      "       shotlet --version\n"
+                      "Select a region, annotate it, then use Save to export a PNG.\n"
+                      "Linux: X11 and a CJK font are required. Vulkan falls back to CPU rendering.\n"
+                      "Set SHOTLET_RENDERER=auto|software|vulkan to choose the Linux renderer.");
+            return 0;
+        }
+    }
     shotlet::LanguagePreference preference = shotlet::LanguagePreference::Auto;
     std::string error;
     if (!shotlet::ParseLanguageArguments(argc, argv, preference, error))

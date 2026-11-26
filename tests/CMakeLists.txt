@@ -35,8 +35,52 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 find_package(GTest QUIET)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SHOTLET_BUILD_LINUX_GUI_TESTS AND NOT GTest_FOUND)
+    message(FATAL_ERROR "Linux GUI tests require GoogleTest")
+endif()
 
 if(GTest_FOUND)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(software_icon_tests test_software_icons.cpp)
+        target_link_libraries(software_icon_tests PRIVATE shotlet_core GTest::gtest_main)
+        add_test(NAME software_icon_tests COMMAND software_icon_tests)
+        add_executable(linux_desktop_tests test_linux_desktop.cpp)
+        target_link_libraries(linux_desktop_tests PRIVATE shotlet_core GTest::gtest_main)
+        find_program(XVFB_RUN_EXECUTABLE xvfb-run)
+        if(XVFB_RUN_EXECUTABLE)
+            add_test(NAME linux_desktop_tests COMMAND ${XVFB_RUN_EXECUTABLE} -a
+                "--server-args=-screen 0 1280x800x24 -noreset" $<TARGET_FILE:linux_desktop_tests>)
+            add_test(NAME linux_desktop_rgb565_tests COMMAND ${XVFB_RUN_EXECUTABLE} -a
+                "--server-args=-screen 0 1280x800x16 -noreset" $<TARGET_FILE:linux_desktop_tests>)
+            set_tests_properties(linux_desktop_rgb565_tests PROPERTIES TIMEOUT 45
+                ENVIRONMENT "XDG_SESSION_TYPE=x11;WAYLAND_DISPLAY=")
+        else()
+            add_test(NAME linux_desktop_tests COMMAND linux_desktop_tests)
+        endif()
+        set_tests_properties(linux_desktop_tests PROPERTIES TIMEOUT 45
+            ENVIRONMENT "XDG_SESSION_TYPE=x11;WAYLAND_DISPLAY=")
+        if(SHOTLET_BUILD_LINUX_GUI_TESTS)
+            find_program(XDOTOOL_EXECUTABLE xdotool REQUIRED)
+            if(NOT XVFB_RUN_EXECUTABLE OR NOT Python3_Interpreter_FOUND)
+                message(FATAL_ERROR "Linux GUI tests require xvfb-run, Python 3 with Pillow, xdotool, Zenity and a Vulkan driver")
+            endif()
+            add_test(NAME linux_gui_tests COMMAND ${XVFB_RUN_EXECUTABLE} -a
+                "--server-args=-screen 0 1280x800x24 -noreset"
+                ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_linux_gui.py
+                --app $<TARGET_FILE:shotlet> --artifacts ${CMAKE_CURRENT_BINARY_DIR}/linux-gui-artifacts)
+            set_tests_properties(linux_gui_tests PROPERTIES TIMEOUT 90)
+            foreach(mode software fallback)
+                add_test(NAME linux_gui_${mode}_tests COMMAND ${XVFB_RUN_EXECUTABLE} -a
+                    "--server-args=-screen 0 1280x800x24 -noreset"
+                    ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_linux_gui.py
+                    --app $<TARGET_FILE:shotlet> --expect-software
+                    --artifacts ${CMAKE_CURRENT_BINARY_DIR}/linux-gui-${mode}-artifacts)
+                # A nonexistent ICD disables Vulkan even on machines with lavapipe.
+                set_tests_properties(linux_gui_${mode}_tests PROPERTIES TIMEOUT 90
+                    ENVIRONMENT "SHOTLET_RENDERER=$<IF:$<STREQUAL:${mode},software>,software,auto>;VK_DRIVER_FILES=/nonexistent-shotlet-icd.json;VK_ICD_FILENAMES=/nonexistent-shotlet-icd.json")
+            endforeach()
+        endif()
+    endif()
     add_executable(recording_tests test_recording.cpp test_async_mailbox.cpp)
     target_link_libraries(recording_tests PRIVATE shotlet_core GTest::gtest_main)
     add_test(NAME recording_tests COMMAND recording_tests)

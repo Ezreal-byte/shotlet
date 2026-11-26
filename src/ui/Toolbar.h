@@ -2,16 +2,20 @@
 #include "i18n/Localization.h"
 #include "Theme.h"
 #include "utils/WindowChrome.h"
+#include "ToolbarIcons.h"
 
 #include <functional>
+#include <memory>
 #include <cstdint>
 #include <vector>
 #include <imgui.h>
 #include <imgui_internal.h>
 
+struct SDL_Renderer;
 namespace shotlet {
 
 class Canvas;
+class SoftwareIconCache;
 
 class Toolbar {
 public:
@@ -44,6 +48,9 @@ public:
     void SetTheme(Theme theme) { m_theme = theme; }
     void SetLanguage(Language language) { m_language = language; }
     void SetCanvas(Canvas* canvas) { m_canvas = canvas; }
+#if defined(SHOTLET_PLATFORM_LINUX)
+    void SetSoftwareRenderer(SDL_Renderer* renderer);
+#endif
     void SetConfirmCallback(ConfirmCallback cb) { m_confirmCallback = std::move(cb); }
     void SetCancelCallback(CancelCallback cb) { m_cancelCallback = std::move(cb); }
     void SetSaveCallback(SaveCallback cb) { m_saveCallback = std::move(cb); }
@@ -84,6 +91,11 @@ public:
     void RenderWindowControls();
 
 private:
+    void DrawToolbarIcon(ImDrawList* drawList, ImVec2 position, float size, ToolbarIcons::IconType type,
+                         ImU32 color, float thickness);
+#if defined(SHOTLET_PLATFORM_LINUX)
+    std::shared_ptr<SoftwareIconCache> m_softwareIcons;
+#endif
     void RecordEditorControl();
     float GetWindowControlsWidth() const;
     Theme m_theme = Theme::Dark;

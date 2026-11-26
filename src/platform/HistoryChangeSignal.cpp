@@ -48,7 +48,7 @@ void HistoryChangeSignal::Start(const std::filesystem::path& directory) {
     notify_check(token, &changed); // 清除首次检查默认返回的变更标记。
 #elif defined(__linux__)
     m_handle = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-    if (m_handle < 0 || inotify_add_watch(int(m_handle), m_directory.c_str(), IN_ATTRIB) < 0) {
+    if (m_handle < 0 || inotify_add_watch(int(m_handle), m_directory.c_str(), IN_ATTRIB | IN_MODIFY) < 0) {
         if (m_handle >= 0) close(int(m_handle));
         m_handle = -1;
         throw std::runtime_error("无法监听截图历史变更");
@@ -91,7 +91,17 @@ uint64_t HistoryChangeSignal::Revision() {
     changed = m_handle != -1 && notify_check(int(m_handle), &posted) == NOTIFY_STATUS_OK && posted;
 #elif defined(__linux__)
     alignas(inotify_event) char events[4096];
-    while (m_handle != -1 && read(int(m_handle), events, sizeof(events)) > 0) changed = true;
+    ssize_t bytes = 0;
+    while (m_handle != -1 && (bytes = read(int(m_handle), events, sizeof(events))) > 0) {
+        for (size_t offset = 0; offset + sizeof(inotify_event) <= size_t(bytes);) {
+            const auto* event = reinterpret_cast<const inotify_event*>(events + offset);
+            // Setting only directory mtime emits IN_MODIFY on Linux. Child
+            // asset writes have names and must not count as committed changes.
+            if ((!event->len && (event->mask & (IN_ATTRIB | IN_MODIFY))) ||
+                (event->mask & IN_Q_OVERFLOW)) changed = true;
+            offset += sizeof(inotify_event) + event->len;
+        }
+    }
 #endif
     if (changed) ++m_revision;
     return m_revision.load();

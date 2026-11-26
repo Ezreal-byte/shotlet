@@ -59,7 +59,7 @@ Shotlet 使用 C++20、SDL3、Dear ImGui 和 SDL_GPU 构建，支持 Windows 与
 </table>
 
 **原生渲染。** SDL_GPU 在 macOS 使用 Metal，在 Windows 使用 Direct3D 12；不依赖浏览器内核。
-**边界清晰。** Windows 与 macOS 是正式支持平台；Linux 目前仅保留部分编译适配，桌面捕获和系统集成能力不完整。
+**边界清晰。** Windows 与 macOS 是正式支持平台；Linux 提供 x86_64／ARM64 的 X11 基础截图、标注与 PNG 保存预览版，面向银河麒麟和统信 UOS。范围、依赖和验证方法见 [Linux 适配说明](docs/linux.md)。
 **本地优先。** 截图历史和设置保存在本机；Node addon 不自动记录历史。
 
 ## 功能
@@ -133,7 +133,7 @@ Windows 也支持滚动截图与长图编辑。
 | Windows | Visual Studio 2019、2022 或 2026，x64 C++ 工具 |
 | macOS | Xcode Command Line Tools / Clang |
 
-SDL3 在所有平台均静态链接，并关闭未使用的音频、摄像头、手柄、触觉、HID、电源、传感器、对话框和 SDL_Render 子系统，保留窗口、SDL_GPU 和系统托盘。macOS 使用 Metal，Windows 使用 Direct3D 12；两者均关闭 OpenGL、OpenGL ES 和 Vulkan。裁剪配置由根目录 CMake 统一应用于应用和 Node addon，并覆盖旧构建缓存。
+SDL3 在所有平台均静态链接，并关闭未使用的音频、摄像头、手柄、触觉、HID、电源和传感器子系统，保留窗口、SDL_GPU 和系统托盘。Linux 另外启用原生保存对话框和 SDL_Render 软件渲染；Vulkan 初始化失败时，基础截图、标注和 PNG 导出自动使用 CPU。macOS 使用 Metal，Windows 使用 Direct3D 12；两者均关闭 OpenGL、OpenGL ES、Vulkan、SDL_Render 和 SDL 对话框。裁剪配置由根目录 CMake 统一应用于应用和 Node addon，并覆盖旧构建缓存。
 
 ## 获取依赖
 
@@ -166,7 +166,7 @@ shotlet/
 ./build.sh --all    # 构建全部目标
 ```
 
-Linux 构建入口仍可用于编译检查，但 Linux 平台适配尚未列为正式支持平台；截图、窗口和系统集成能力可能不完整。
+Linux 的 X11 基础功能、DEB／TGZ 打包和 glibc 2.28 兼容构建见 [Linux 适配说明](docs/linux.md)。Wayland、录屏、OCR、长截图、贴图和全局热键尚未开放。
 
 ### Windows
 

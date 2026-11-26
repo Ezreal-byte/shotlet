@@ -14,7 +14,7 @@ Shotlet is built with C++20, SDL3, Dear ImGui, and SDL_GPU. Windows and macOS ar
 
 **Fully offline, your data stays yours.** Shotlet never talks to a server. No uploads, no telemetry, no accounts, no cloud sync. Your screenshots, recordings, OCR text, history, and settings never leave your machine.
 
-Version tags trigger GitHub Actions builds of portable ZIP packages for Windows x64, macOS Apple Silicon, and macOS Intel. Once a release is published, download the matching ZIP and `SHA256SUMS` from the repository's Releases page. Extract the Windows package and run `shotlet.exe`; on macOS, move `shotlet.app` to Applications. macOS packages use ad-hoc signing and are not notarized; Windows packages are unsigned. See [RELEASING.md](RELEASING.md) for the release process, or build from source below. Linux has partial build support, but desktop capture and system integration are incomplete and Linux is not an officially supported platform.
+Version tags trigger GitHub Actions builds of portable ZIP packages for Windows x64, macOS Apple Silicon, and macOS Intel. Once a release is published, download the matching ZIP and `SHA256SUMS` from the repository's Releases page. Extract the Windows package and run `shotlet.exe`; on macOS, move `shotlet.app` to Applications. macOS packages use ad-hoc signing and are not notarized; Windows packages are unsigned. See [RELEASING.md](RELEASING.md) for the release process, or build from source below. An experimental Linux X11 build for x86_64 and ARM64 now provides basic screen capture, annotations and PNG saving, with DEB/TGZ packages and a glibc 2.28 compatible toolchain. See [Linux support and build instructions](docs/linux.md) for its scope and target-desktop validation requirements.
 
 <table>
   <tr>

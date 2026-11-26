@@ -6,13 +6,22 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
+#if defined(SHOTLET_PLATFORM_LINUX)
+#include <X11/Xlib.h>
+#endif
 
 namespace shotlet {
 
 void InitializeApplicationPlatform() {
+#if defined(SHOTLET_PLATFORM_LINUX)
+    XInitThreads();
+#endif
 }
 
 void ApplyApplicationPlatformSDLHints() {
+#if defined(SHOTLET_PLATFORM_LINUX)
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+#endif
 }
 
 void PrepareApplicationScreenCapture(IScreenCapture*) {
@@ -26,11 +35,15 @@ void DelayAfterCaptureFrame() {
 }
 
 SDL_GPUDevice* CreateApplicationGpuDevice(bool) {
+#if defined(SHOTLET_PLATFORM_LINUX)
+    return SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, "vulkan");
+#else
     return SDL_CreateGPUDevice(
         SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_METALLIB |
         SDL_GPU_SHADERFORMAT_DXBC | SDL_GPU_SHADERFORMAT_DXIL |
         SDL_GPU_SHADERFORMAT_SPIRV,
         false, nullptr);
+#endif
 }
 
 void DestroyApplicationGpuDevice(SDL_GPUDevice*& gpuDevice, bool) {

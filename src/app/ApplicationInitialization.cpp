@@ -15,7 +15,8 @@ namespace shotlet {
     bool Application::Initialize(int argc, char **argv) {
         PlatformAutoreleasePool pool;
         // 宿主使用传入的主题、语言和日志路径，不读写独立应用的设置文件。
-        if (!m_hostCaptureOutput) m_preferences = LoadPreferences(PreferencesPath());
+        if (!m_hostCaptureOutput)
+            m_preferences = LoadPreferences(PreferencesPath());
         if (!InitializeLogging(argc, argv) || !InitializePreferences(argc, argv))
             return false;
         InitializeApplicationPlatform();
@@ -42,8 +43,15 @@ namespace shotlet {
                 return false;
         } else {
             RequestCapture();
+#if defined(SHOTLET_PLATFORM_LINUX)
+            if (!m_capturing) {
+                Logger::Error("Initial Linux capture failed; exiting instead of waiting without a window");
+                return false;
+            }
+#endif
         }
-        if (m_hostCaptureOutput && !m_capturing) return false;
+        if (m_hostCaptureOutput && !m_capturing)
+            return false;
         Logger::Info("Shotlet initialized successfully");
         return true;
     }
@@ -59,7 +67,8 @@ namespace shotlet {
             }
         }
         // 宿主模式与后台、嵌入模式语义互斥。
-        if (m_hostCaptureOutput && (m_daemonMode || m_embeddedMode)) return false;
+        if (m_hostCaptureOutput && (m_daemonMode || m_embeddedMode))
+            return false;
         // 日志参数先于平台初始化生效，初始化失败也能按配置输出。
         std::string logArgumentError;
         for (int i = 1; i < argc; ++i) {
@@ -163,7 +172,8 @@ namespace shotlet {
         }
 
         // 屏幕录制权限状态由宿主传入，授权引导由宿主负责，不进入独立应用的等待流程。
-        if (!m_hostCaptureOutput) PrepareApplicationScreenCapture(m_screenCapture.get());
+        if (!m_hostCaptureOutput)
+            PrepareApplicationScreenCapture(m_screenCapture.get());
         return true;
     }
 
@@ -215,9 +225,30 @@ namespace shotlet {
             return true;
         }
 
+#if defined(SHOTLET_PLATFORM_LINUX)
+        const char *renderer = SDL_getenv("SHOTLET_RENDERER");
+        const std::string rendererMode = renderer ? renderer : "auto";
+        if (rendererMode == "software") {
+            Logger::Info("event=renderer.selected backend=software reason=requested");
+            return true;
+        }
+        if (rendererMode != "auto" && rendererMode != "vulkan") {
+            Logger::Error("Invalid SHOTLET_RENDERER '{}'; expected auto, software or vulkan", rendererMode);
+            return false;
+        }
+#endif
+
         Logger::Debug("Creating SDL_GPU device...");
         SDL_GPUDevice *device = CreateApplicationGpuDevice(m_embeddedMode);
         if (!device) {
+#if defined(SHOTLET_PLATFORM_LINUX)
+            if (rendererMode == "auto") {
+                Logger::Warning("Vulkan initialization failed: {}; using CPU software rendering", SDL_GetError());
+                Logger::Info("event=renderer.selected backend=software reason=vulkan_unavailable");
+                SDL_ClearError();
+                return true;
+            }
+#endif
             Logger::Error("SDL_CreateGPUDevice failed: {}", SDL_GetError());
             return false;
         }

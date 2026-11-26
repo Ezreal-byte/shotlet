@@ -5,8 +5,9 @@
 #include "ScreenOverlay.h"
 #include "core/Canvas.h"
 #include "core/CursorManager.h"
-#include "ui/Toolbar.h"
+#include "ui/ImGuiRendererFrame.h"
 #include "ui/SubToolbar.h"
+#include "ui/Toolbar.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
@@ -17,20 +18,29 @@
 namespace shotlet {
 
     void ScreenOverlay::RenderFrame() {
-        if (!m_created || m_hidden || !m_sdlWindow || !m_gpuDevice || !m_imguiContext) return;
+        if (!m_created || m_hidden || !m_sdlWindow || !m_imguiContext)
+            return;
+#if defined(SHOTLET_PLATFORM_LINUX)
+        if (!m_gpuDevice && !SDL_GetRenderer(m_sdlWindow))
+            return;
+#else
+        if (!m_gpuDevice)
+            return;
+#endif
 
 #if defined(SHOTLET_PLATFORM_MACOS) || defined(SHOTLET_PLATFORM_WINDOWS)
         PollScrollCapture();
         // 采集界面由原生透明窗口绘制；仍需每帧轮询完成、取消和长图预览。
-        if (m_scrollCapture || m_hidden) return;
+        if (m_scrollCapture || m_hidden)
+            return;
 #endif
         // 事件阶段累积的纹理脏区在此一次性上传（马赛克涂抹等高频路径）
         FlushDirtyRegion();
 
-        ImGuiContext* prevCtx = ImGui::GetCurrentContext();
+        ImGuiContext *prevCtx = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(m_imguiContext);
 
-        ImGuiIO& io = ImGui::GetIO();
+        ImGuiIO &io = ImGui::GetIO();
         bool hadNoMouseCursorChange = io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange;
 #if !defined(SHOTLET_PLATFORM_WINDOWS)
         if (!m_active) {
@@ -38,7 +48,7 @@ namespace shotlet {
         }
 #endif
 
-        ImGui_ImplSDLGPU3_NewFrame();
+        NewImGuiRendererFrame(m_gpuDevice);
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
@@ -46,8 +56,7 @@ namespace shotlet {
         if (m_canvas && !m_canvas->HasSelection() && !m_dimmed && m_smartDetector) {
             if (!m_smartCacheBuilt) {
                 ImVec2 displaySize = m_canvas->GetDisplaySize();
-                m_smartDetector->BuildCache(static_cast<float>(m_config.windowX),
-                                            static_cast<float>(m_config.windowY),
+                m_smartDetector->BuildCache(static_cast<float>(m_config.windowX), static_cast<float>(m_config.windowY),
                                             displaySize.x, displaySize.y);
                 m_smartCacheBuilt = true;
             }
@@ -69,18 +78,16 @@ namespace shotlet {
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
         ImGui::SetNextWindowBgAlpha(0.0f);
 
-        ImGuiWindowFlags wf =
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus |
-            ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoMouseInputs;
+        ImGuiWindowFlags wf = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                              ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                              ImGuiWindowFlags_NoMouseInputs;
 
         if (ImGui::Begin("OverlayWindow", nullptr, wf)) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImDrawList *drawList = ImGui::GetWindowDrawList();
             m_canvas->Render(drawList);
             if (m_dimmed) {
-                drawList->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
-                                        Colors::DimOverlay);
+                drawList->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize, Colors::DimOverlay);
             }
         }
         ImGui::End();
@@ -88,19 +95,25 @@ namespace shotlet {
 #if defined(SHOTLET_PLATFORM_MACOS) || defined(SHOTLET_PLATFORM_WINDOWS)
         if (!m_scrollMessage.empty() && !m_scrollCapture) {
             ImGui::SetNextWindowPos(ImVec2(16, 16));
-            ImGui::Begin(m_scrollPromptTitle.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+            ImGui::Begin(m_scrollPromptTitle.c_str(), nullptr,
+                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
             ImGui::TextWrapped("%s", m_scrollMessage.c_str());
             if (m_pendingScrollResult) {
-                if (ImGui::Button(m_scrollRetryLoadLabel.c_str())) m_scrollRequested = true;
+                if (ImGui::Button(m_scrollRetryLoadLabel.c_str()))
+                    m_scrollRequested = true;
                 ImGui::SameLine();
-                if (ImGui::Button(m_scrollSaveLabel.c_str())) m_saveScrollResult = true;
-            } else if (ImGui::Button(m_scrollCloseLabel.c_str())) m_scrollMessage.clear();
+                if (ImGui::Button(m_scrollSaveLabel.c_str()))
+                    m_saveScrollResult = true;
+            } else if (ImGui::Button(m_scrollCloseLabel.c_str()))
+                m_scrollMessage.clear();
             ImGui::End();
         }
         if (!m_scrollCapture && !m_pendingScrollResult) {
 #endif
-        if (m_toolbar && !m_dimmed && m_canvas->HasSelection()) m_toolbar->Render();
-        if (m_subToolbar && !m_dimmed && m_canvas->HasSelection()) m_subToolbar->Render();
+            if (m_toolbar && !m_dimmed && m_canvas->HasSelection())
+                m_toolbar->Render();
+            if (m_subToolbar && !m_dimmed && m_canvas->HasSelection())
+                m_subToolbar->Render();
 
 #if defined(SHOTLET_PLATFORM_MACOS) || defined(SHOTLET_PLATFORM_WINDOWS)
         }
@@ -123,10 +136,20 @@ namespace shotlet {
             m_cursorManager->ApplySDL(m_canvas->GetLastCursorType());
         }
 
-        ImDrawData* drawData = ImGui::GetDrawData();
-        if (drawData && drawData->TotalVtxCount > 0) {
-            SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(m_gpuDevice);
-            SDL_GPUTexture* swapchainTex = nullptr;
+        ImDrawData *drawData = ImGui::GetDrawData();
+#if defined(SHOTLET_PLATFORM_LINUX)
+        if (!m_gpuDevice && drawData) {
+            auto *renderer = SDL_GetRenderer(m_sdlWindow);
+            SDL_SetRenderScale(renderer, drawData->FramebufferScale.x, drawData->FramebufferScale.y);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+            SDL_RenderClear(renderer);
+            ImGui_ImplSDLRenderer3_RenderDrawData(drawData, renderer);
+            SDL_RenderPresent(renderer);
+        } else
+#endif
+                if (drawData && drawData->TotalVtxCount > 0) {
+            SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(m_gpuDevice);
+            SDL_GPUTexture *swapchainTex = nullptr;
             if (SDL_AcquireGPUSwapchainTexture(cmd, m_sdlWindow, &swapchainTex, nullptr, nullptr) && swapchainTex) {
                 ImGui_ImplSDLGPU3_PrepareDrawData(drawData, cmd);
 
@@ -140,7 +163,7 @@ namespace shotlet {
                 targetInfo.layer_or_depth_plane = 0;
                 targetInfo.cycle = false;
 
-                SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmd, &targetInfo, 1, nullptr);
+                SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(cmd, &targetInfo, 1, nullptr);
                 ImGui_ImplSDLGPU3_RenderDrawData(drawData, cmd, renderPass);
                 SDL_EndGPURenderPass(renderPass);
             }

@@ -1,262 +1,238 @@
 #include "CaptureLinux.h"
+#include "core/CaptureDocument.h"
 #include "utils/Logger.h"
 
 #if defined(SHOTLET_PLATFORM_LINUX)
-
-#include <cstring>
-#include <cstdlib>
-#include <X11/Xmd.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <X11/extensions/Xinerama.h>
 #include <X11/extensions/Xrandr.h>
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <set>
 
 namespace shotlet {
+    namespace {
+        bool IsWaylandSession() {
+            const char *display = std::getenv("WAYLAND_DISPLAY");
+            const char *session = std::getenv("XDG_SESSION_TYPE");
+            return (display && *display) || (session && std::strcmp(session, "wayland") == 0);
+        }
+        unsigned char ColorComponent(unsigned long pixel, unsigned long mask) {
+            if (!mask)
+                return 0;
+            while (!(mask & 1)) {
+                mask >>= 1;
+                pixel >>= 1;
+            }
+            return static_cast<unsigned char>((uint64_t(pixel & mask) * 255 + mask / 2) / mask);
+        }
+    } // namespace
 
-CaptureLinux::CaptureLinux() = default;
+    struct CaptureLinux::Impl {
+        Display *display = nullptr;
+        Window root = 0;
+        ~Impl() {
+            if (display)
+                XCloseDisplay(display);
+        }
+    };
+    CaptureLinux::CaptureLinux() = default;
+    CaptureLinux::~CaptureLinux() = default;
 
-CaptureLinux::~CaptureLinux() {
-    if (m_xDisplay) {
-        XCloseDisplay(m_xDisplay);
-        m_xDisplay = nullptr;
-    }
-}
-
-bool CaptureLinux::Initialize() {
-    // 检测显示服务器类型
-    if (IsWayland()) {
-        Logger::Info("Wayland detected, will use XDG Desktop Portal");
-        m_initialized = true;
+    bool CaptureLinux::Initialize() {
+        m_lastError.clear();
+        m_impl.reset();
+        if (IsWaylandSession()) {
+            m_lastError = "Linux capture currently requires an X11 session. Log in using X11 instead of Wayland.";
+            return false;
+        }
+        auto impl = std::make_unique<Impl>();
+        impl->display = XOpenDisplay(nullptr);
+        if (!impl->display) {
+            m_lastError = "Cannot connect to the X11 desktop. Check DISPLAY and the desktop session permissions.";
+            return false;
+        }
+        impl->root = DefaultRootWindow(impl->display);
+        m_impl = std::move(impl);
+        Logger::Info("X11 screen capture initialized");
         return true;
     }
-    
-    // 尝试连接 X11
-    m_xDisplay = XOpenDisplay(nullptr);
-    if (!m_xDisplay) {
-        m_lastError = "Failed to connect to X11 display";
-        return false;
-    }
-    
-    m_xRootWindow = DefaultRootWindow(m_xDisplay);
-    m_initialized = true;
-    
-    Logger::Info("X11 screen capture initialized");
-    return true;
-}
 
-bool CaptureLinux::IsWayland() {
-    const char* waylandDisplay = getenv("WAYLAND_DISPLAY");
-    const char* xdgSessionType = getenv("XDG_SESSION_TYPE");
-    
-    if (waylandDisplay) {
-        return true;
-    }
-    
-    if (xdgSessionType && strcmp(xdgSessionType, "wayland") == 0) {
-        return true;
-    }
-    
-    return false;
-}
-
-bool CaptureLinux::HasXDGPortal() {
-    // 检查是否有 xdg-desktop-portal 服务
-    // 简化实现：假设现代桌面环境都有
-    return true;
-}
-
-std::vector<DisplayInfo> CaptureLinux::GetDisplays() {
-    std::vector<DisplayInfo> displays;
-    
-    if (IsWayland()) {
-        // Wayland 下通过 XDG Portal 或其他方式获取显示器信息
-        // 暂时返回一个默认显示器
-        Logger::Warning("Wayland display enumeration not fully implemented");
-        DisplayInfo info;
-        info.id = 0;
-        info.name = "Wayland Display";
-        info.displayX = 0;
-        info.displayY = 0;
-        info.displayWidth = 1920;
-        info.displayHeight = 1080;
-        info.scaleFactor = 1.0f;
-        info.isPrimary = true;
-        info.refreshRate = 60;
-        displays.push_back(info);
+    std::vector<DisplayInfo> CaptureLinux::GetDisplays() {
+        std::vector<DisplayInfo> displays;
+        if (!m_impl) {
+            m_lastError = "X11 capture is not initialized";
+            return displays;
+        }
+        m_lastError.clear();
+        auto *display = m_impl->display;
+        const Window root = m_impl->root;
+        int major = 1, minor = 2;
+        if (XRRQueryVersion(display, &major, &minor) && (major > 1 || (major == 1 && minor >= 2))) {
+            const RROutput primary = (major > 1 || minor >= 3) ? XRRGetOutputPrimary(display, root) : 0;
+            auto *resources = XRRGetScreenResources(display, root);
+            if (resources) {
+                std::set<RRCrtc> seen;
+                for (int index = 0; index < resources->noutput; ++index) {
+                    const RROutput output = resources->outputs[index];
+                    auto *info = XRRGetOutputInfo(display, resources, output);
+                    if (info && info->connection == RR_Connected && info->crtc && !seen.contains(info->crtc)) {
+                        auto *crtc = XRRGetCrtcInfo(display, resources, info->crtc);
+                        if (crtc && crtc->mode && crtc->width && crtc->height) {
+                            DisplayInfo item{};
+                            item.id = static_cast<int>(output);
+                            item.name.assign(info->name, info->nameLen);
+                            item.displayX = crtc->x;
+                            item.displayY = crtc->y;
+                            item.displayWidth = crtc->width;
+                            item.displayHeight = crtc->height;
+                            // X11 window coordinates and root images both use framebuffer pixels.
+                            item.scaleFactor = 1.0f;
+                            item.isPrimary = output == primary;
+                            for (int mode = 0; mode < resources->nmode; ++mode) {
+                                const auto &timing = resources->modes[mode];
+                                if (timing.id == crtc->mode && timing.hTotal && timing.vTotal) {
+                                    double rate = double(timing.dotClock) / timing.hTotal / timing.vTotal;
+                                    if (timing.modeFlags & RR_Interlace)
+                                        rate *= 2;
+                                    if (timing.modeFlags & RR_DoubleScan)
+                                        rate /= 2;
+                                    item.refreshRate = static_cast<int>(rate + 0.5);
+                                    break;
+                                }
+                            }
+                            displays.push_back(std::move(item));
+                            seen.insert(info->crtc);
+                        }
+                        if (crtc)
+                            XRRFreeCrtcInfo(crtc);
+                    }
+                    if (info)
+                        XRRFreeOutputInfo(info);
+                }
+                XRRFreeScreenResources(resources);
+            }
+        }
+        if (displays.empty() && XineramaIsActive(display)) {
+            int count = 0;
+            auto *screens = XineramaQueryScreens(display, &count);
+            if (screens) {
+                for (int index = 0; index < count; ++index) {
+                    DisplayInfo item{};
+                    item.id = screens[index].screen_number;
+                    item.name = "Xinerama " + std::to_string(item.id);
+                    item.displayX = screens[index].x_org;
+                    item.displayY = screens[index].y_org;
+                    item.displayWidth = screens[index].width;
+                    item.displayHeight = screens[index].height;
+                    item.scaleFactor = 1.0f;
+                    item.isPrimary = index == 0;
+                    displays.push_back(std::move(item));
+                }
+                XFree(screens);
+            }
+        }
+        if (displays.empty()) {
+            XWindowAttributes attributes{};
+            if (XGetWindowAttributes(display, root, &attributes) && attributes.width > 0 && attributes.height > 0) {
+                DisplayInfo item{};
+                item.id = 0;
+                item.name = "X11 Desktop";
+                item.displayWidth = attributes.width;
+                item.displayHeight = attributes.height;
+                item.scaleFactor = 1.0f;
+                item.isPrimary = true;
+                displays.push_back(std::move(item));
+            }
+        }
+        if (!displays.empty() &&
+            std::none_of(displays.begin(), displays.end(), [](const auto &d) { return d.isPrimary; }))
+            displays.front().isPrimary = true;
         return displays;
     }
-    
-    if (!m_xDisplay) {
-        m_lastError = "X11 not initialized";
-        return displays;
-    }
-    
-    // 尝试使用 XRandR
-    int eventBase, errorBase;
-    if (XRRQueryExtension(m_xDisplay, &eventBase, &errorBase)) {
-        XRRScreenResources* resources = XRRGetScreenResources(m_xDisplay, m_xRootWindow);
-        if (resources) {
-            for (int i = 0; i < resources->ncrtc; i++) {
-                XRRCrtcInfo* crtcInfo = XRRGetCrtcInfo(m_xDisplay, resources, resources->crtcs[i]);
-                if (crtcInfo && crtcInfo->mode != None) {
-                    DisplayInfo info;
-                    info.id = i;
-                    info.name = "Display " + std::to_string(i + 1);
-                    info.displayX = crtcInfo->x;
-                    info.displayY = crtcInfo->y;
-                    info.displayWidth = crtcInfo->width;
-                    info.displayHeight = crtcInfo->height;
-                    info.scaleFactor = 1.0f; // TODO: 获取实际DPI
-                    info.isPrimary = (i == 0);
-                    info.refreshRate = 60;
 
-                    displays.push_back(info);
-
-                    Logger::Debug("Display {}: {}x{} @ ({},{})",
-                                 i, info.displayWidth, info.displayHeight, info.displayX, info.displayY);
+    CaptureImage CaptureLinux::Capture(const CaptureOptions &options) {
+        if (!m_impl) {
+            m_lastError = "X11 capture is not initialized";
+            return {};
+        }
+        m_lastError.clear();
+        XWindowAttributes root{};
+        if (!XGetWindowAttributes(m_impl->display, m_impl->root, &root)) {
+            m_lastError = "Cannot query X11 desktop bounds";
+            return {};
+        }
+        int64_t left = 0, top = 0, right = root.width, bottom = root.height;
+        if (options.displayId >= 0) {
+            DisplayInfo selected{};
+            if (options.hasDisplayInfo && options.displayInfo.id == options.displayId)
+                selected = options.displayInfo;
+            else {
+                const auto displays = GetDisplays();
+                const auto found = std::find_if(displays.begin(), displays.end(),
+                                                [&](const auto &d) { return d.id == options.displayId; });
+                if (found == displays.end()) {
+                    m_lastError = "The requested X11 display is no longer available";
+                    return {};
                 }
-                if (crtcInfo) {
-                    XRRFreeCrtcInfo(crtcInfo);
-                }
+                selected = *found;
             }
-            XRRFreeScreenResources(resources);
+            left = selected.displayX;
+            top = selected.displayY;
+            right = left + selected.displayWidth;
+            bottom = top + selected.displayHeight;
         }
-    } else {
-        // 回退到 Xinerama
-        int xineramaMajor, xineramaMinor;
-        if (XineramaQueryExtension(m_xDisplay, &xineramaMajor, &xineramaMinor) &&
-            XineramaIsActive(m_xDisplay)) {
-            
-            int numScreens;
-            XineramaScreenInfo* screenInfo = XineramaQueryScreens(m_xDisplay, &numScreens);
-            
-            for (int i = 0; i < numScreens; i++) {
-                DisplayInfo info;
-                info.id = i;
-                info.name = "Xinerama " + std::to_string(i + 1);
-                info.displayX = screenInfo[i].x_org;
-                info.displayY = screenInfo[i].y_org;
-                info.displayWidth = screenInfo[i].width;
-                info.displayHeight = screenInfo[i].height;
-                info.scaleFactor = 1.0f;
-                info.isPrimary = (i == 0);
-                info.refreshRate = 60;
-
-                displays.push_back(info);
+        int64_t x = left, y = top, endX = right, endY = bottom;
+        if (options.captureW || options.captureH) {
+            if (options.captureW <= 0 || options.captureH <= 0) {
+                m_lastError = "Invalid capture dimensions";
+                return {};
             }
-            
-            XFree(screenInfo);
-        } else {
-            // 单个显示器
-            Screen* screen = DefaultScreenOfDisplay(m_xDisplay);
-            DisplayInfo info;
-            info.id = 0;
-            info.name = "Primary Display";
-            info.displayX = 0;
-            info.displayY = 0;
-            info.displayWidth = WidthOfScreen(screen);
-            info.displayHeight = HeightOfScreen(screen);
-            info.scaleFactor = 1.0f;
-            info.isPrimary = true;
-            info.refreshRate = 60;
-            displays.push_back(info);
+            x += options.captureX;
+            y += options.captureY;
+            endX = x + options.captureW;
+            endY = y + options.captureH;
         }
-    }
-    
-    return displays;
-}
-
-CaptureImage CaptureLinux::Capture(const CaptureOptions& options) {
-    if (IsWayland()) {
-        return CaptureXDGPortal(options);
-    }
-    return CaptureX11(options);
-}
-
-CaptureImage CaptureLinux::CaptureX11(const CaptureOptions& options) {
-    if (!m_xDisplay) {
-        m_lastError = "X11 not initialized";
-        return CaptureImage{};
-    }
-    
-    int x = options.captureX;
-    int y = options.captureY;
-    int width = options.captureW;
-    int height = options.captureH;
-    
-    // 如果未指定区域，捕获整个根窗口
-    if (width <= 0 || height <= 0) {
-        XWindowAttributes attrs;
-        XGetWindowAttributes(m_xDisplay, m_xRootWindow, &attrs);
-        width = attrs.width;
-        height = attrs.height;
-    }
-    
-    // 捕获图像
-    XImage* image = XGetImage(m_xDisplay, m_xRootWindow, x, y, width, height, 
-                              AllPlanes, ZPixmap);
-    if (!image) {
-        m_lastError = "XGetImage failed";
-        return CaptureImage{};
-    }
-    
-    // 分配目标缓冲区
-    int rowPitch = width * 4;
-    uint8_t* data = new uint8_t[rowPitch * height];
-    
-    // 转换像素格式
-    // X11 图像格式可能是 24bit 或 32bit，需要处理
-    for (int row = 0; row < height; row++) {
-        for (int col = 0; col < width; col++) {
-            unsigned long pixel = XGetPixel(image, col, row);
-            
-            uint8_t r, g, b;
-            if (image->bits_per_pixel == 32) {
-                r = (pixel >> 16) & 0xFF;
-                g = (pixel >> 8) & 0xFF;
-                b = pixel & 0xFF;
-            } else {
-                r = (pixel >> 16) & 0xFF;
-                g = (pixel >> 8) & 0xFF;
-                b = pixel & 0xFF;
+        x = std::max({x, left, int64_t(0)});
+        y = std::max({y, top, int64_t(0)});
+        endX = std::min({endX, right, int64_t(root.width)});
+        endY = std::min({endY, bottom, int64_t(root.height)});
+        if (endX <= x || endY <= y || !DocumentPixelBytes(int(endX - x), int(endY - y))) {
+            m_lastError = "Capture region is outside the desktop or exceeds the image size limit";
+            return {};
+        }
+        const int width = int(endX - x), height = int(endY - y);
+        auto *image = XGetImage(m_impl->display, m_impl->root, int(x), int(y), width, height, AllPlanes, ZPixmap);
+        if (!image) {
+            m_lastError = "X11 could not capture the desktop image";
+            return {};
+        }
+        const auto destroyImage = [](XImage *value) { XDestroyImage(value); };
+        const std::unique_ptr<XImage, decltype(destroyImage)> releaseImage(image, destroyImage);
+        CaptureImage result;
+        result.data = new uint8_t[size_t(width) * height * 4];
+        result.width = width;
+        result.height = height;
+        result.rowPitch = width * 4;
+        result.captureX = int(x);
+        result.captureY = int(y);
+        result.displayId = options.displayId;
+        for (int row = 0; row < height; ++row) {
+            for (int column = 0; column < width; ++column) {
+                const auto pixel = XGetPixel(image, column, row);
+                auto *rgba = result.data + size_t(row) * result.rowPitch + size_t(column) * 4;
+                rgba[0] = ColorComponent(pixel, image->red_mask);
+                rgba[1] = ColorComponent(pixel, image->green_mask);
+                rgba[2] = ColorComponent(pixel, image->blue_mask);
+                rgba[3] = 255;
             }
-            
-            int idx = row * rowPitch + col * 4;
-            data[idx + 0] = r;
-            data[idx + 1] = g;
-            data[idx + 2] = b;
-            data[idx + 3] = 255;
         }
+        Logger::Info("Captured {}x{} at ({},{}) via X11", width, height, x, y);
+        return result;
     }
-    
-    XDestroyImage(image);
-    
-    CaptureImage result;
-    result.data = data;
-    result.width = width;
-    result.height = height;
-    result.captureX = x;
-    result.captureY = y;
-    result.rowPitch = rowPitch;
-    result.displayId = options.displayId;
-    
-    Logger::Info("Captured {}x{} image via X11", width, height);
-    
-    return result;
-}
 
-CaptureImage CaptureLinux::CaptureXDGPortal(const CaptureOptions& options) {
-    // TODO: 实现 XDG Desktop Portal 截图
-    // 这需要 D-Bus 通信，比较复杂
-    // 暂时返回空，实际使用时需要完整实现
-    
-    Logger::Error("XDG Desktop Portal capture not yet implemented");
-    m_lastError = "Wayland capture not implemented";
-    return CaptureImage{};
-}
-
-std::string CaptureLinux::GetLastErrorMessage() const {
-    return m_lastError;
-}
-
+    std::string CaptureLinux::GetLastErrorMessage() const { return m_lastError; }
 } // namespace shotlet
-
-#endif // SHOTLET_PLATFORM_LINUX
+#endif

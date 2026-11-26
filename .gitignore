@@ -14,6 +14,7 @@ logs
 # 截图 SDK 文档会被导出脚本打包，必须入库
 docs/*
 !docs/capture-sdk.md
+!docs/linux.md
 .idea
 test.go
 .DS_Store
@@ -43,3 +44,6 @@ openspec/
 
 .agents
 .workbuddy
+
+# Stable runtime extracted by the Linux tarball test helper.
+/scripts/shotlet-runtime-*/
