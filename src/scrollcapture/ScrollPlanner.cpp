@@ -49,7 +49,7 @@ ScrollPlanner::Step ScrollPlanner::TakeStep() {
     const double gain = EffectiveGain();
     const int64_t injectByTarget =
         std::max<int64_t>(1, static_cast<int64_t>(std::llround(static_cast<double>(target) / gain)));
-    const int64_t inject = dir * std::min(std::llabs(m_pending), injectByTarget);
+    const int64_t inject = dir * std::min<int64_t>(std::llabs(m_pending), injectByTarget);
     Step step;
     step.injectPixels = inject;
     step.expectedShift =

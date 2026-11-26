@@ -3,6 +3,9 @@
 #include "WindowChrome.h"
 #include "core/Canvas.h"
 #include "utils/Colors.h"
+#if defined(SHOTLET_PLATFORM_LINUX)
+#include "SoftwareIconCache.h"
+#endif
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -10,6 +13,33 @@
 #include <cmath>
 
 namespace shotlet {
+
+#if defined(SHOTLET_PLATFORM_LINUX)
+void Toolbar::SetSoftwareRenderer(SDL_Renderer* renderer) {
+    m_softwareIcons = renderer ? std::make_shared<SoftwareIconCache>(renderer) : nullptr;
+    if (!m_softwareIcons) return;
+    // Prepare textures before showing the capture window, so the first tool click
+    // never competes with icon rasterization on a slower desktop.
+    ImDrawList warmup(ImGui::GetDrawListSharedData());
+    warmup._ResetForNewFrame();
+    warmup.PushClipRect({0, 0}, {IconSize * m_uiScale + 8, IconSize * m_uiScale + 8});
+    for (int icon = 0; icon <= int(ToolbarIcons::IconType::Crop); ++icon) {
+        const auto type = ToolbarIcons::IconType(icon);
+        const float stroke = (type == ToolbarIcons::IconType::Close || type == ToolbarIcons::IconType::Ok)
+            ? 1.5f : IconStrokeWidth;
+        m_softwareIcons->Draw(&warmup, {0, 0}, IconSize * m_uiScale, type, GetThemePalette(m_theme).icon,
+                              stroke * m_uiScale);
+    }
+}
+#endif
+
+void Toolbar::DrawToolbarIcon(ImDrawList* drawList, ImVec2 position, float size, ToolbarIcons::IconType type,
+                              ImU32 color, float thickness) {
+#if defined(SHOTLET_PLATFORM_LINUX)
+    if (m_softwareIcons && m_softwareIcons->Draw(drawList, position, size, type, color, thickness)) return;
+#endif
+    ToolbarIcons::DrawIcon(drawList, position, size, type, color, thickness);
+}
 
 namespace EditorToolbarLayout {
     constexpr int IconCount = 18;
@@ -308,7 +338,7 @@ void Toolbar::Render() {
                     iconType = ToolbarIcons::IconType::Rectangle;
                     break;
             }
-            ToolbarIcons::DrawIcon(drawList, p_min, iconSize, iconType, iconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, iconType, iconColor, IconStrokeWidth * s);
 
             if (ImGui::IsItemHovered()) {
                 showTooltip(tooltip);
@@ -341,7 +371,7 @@ void Toolbar::Render() {
                 }
                 if (ImGui::IsItemHovered()) showTooltip(tooltip);
                 // 落笔期间仅锁定操作，图标保持原色，避免每笔按下和松开时反复明暗切换。
-                ToolbarIcons::DrawIcon(drawList, pos, iconSize, icon, selected ? greenColor : baseIconColor, IconStrokeWidth * s);
+                DrawToolbarIcon(drawList, pos, iconSize, icon, selected ? greenColor : baseIconColor, IconStrokeWidth * s);
                 if (clicked && m_editorActionCallback) m_editorActionCallback(action);
                 ImGui::EndDisabled();
                 ImGui::SameLine(0, iconSpacing);
@@ -386,7 +416,7 @@ void Toolbar::Render() {
                 m_selectedToolPos = p_min;
                 m_hasSelectedToolPos = true;
             }
-            ToolbarIcons::DrawMosaicIcon(drawList, p_min, iconSize, iconColor);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Mosaic, iconColor, IconStrokeWidth * s);
 
             if (ImGui::IsItemHovered()) {
                 showTooltip(Tr(m_language, TextId::ToolMosaic));
@@ -427,7 +457,7 @@ void Toolbar::Render() {
                 m_selectedToolPos = p_min;
                 m_hasSelectedToolPos = true;
             }
-            ToolbarIcons::DrawTextIcon(drawList, p_min, iconSize, iconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Text, iconColor, IconStrokeWidth * s);
 
             if (ImGui::IsItemHovered()) {
                 showTooltip(Tr(m_language, TextId::ToolText));
@@ -450,6 +480,7 @@ void Toolbar::Render() {
 
         // OCR 识别图标
         {
+            ImGui::BeginDisabled(!m_ocrCallback);
             const ImVec2 p_min = ImGui::GetCursorScreenPos();
             const auto p_max = ImVec2(p_min.x + iconSize, p_min.y + iconSize);
             ImGui::InvisibleButton("ocr_btn", ImVec2(iconSize, iconSize));
@@ -458,10 +489,11 @@ void Toolbar::Render() {
                 drawList->AddRectFilled(p_min, p_max, selectedBgColor, 2.0f * s);
                 showTooltip(Tr(m_language, TextId::ActionOcr));
             }
-            ToolbarIcons::DrawOcrIcon(drawList, p_min, iconSize, baseIconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Ocr, m_ocrCallback ? baseIconColor : disabledColor, IconStrokeWidth * s);
             if (ImGui::IsItemClicked()) {
                 if (m_ocrCallback) m_ocrCallback();
             }
+            ImGui::EndDisabled();
         }
         ImGui::SameLine(0, iconSpacing);
 
@@ -470,7 +502,7 @@ void Toolbar::Render() {
             const ImVec2 p_min = ImGui::GetCursorScreenPos();
             ImGui::InvisibleButton("scroll_capture", ImVec2(iconSize, iconSize));
             RecordEditorControl();
-            ToolbarIcons::DrawScrollIcon(drawList, p_min, iconSize, baseIconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Scroll, baseIconColor, IconStrokeWidth * s);
             if (ImGui::IsItemHovered()) showTooltip(Tr(m_language, TextId::ActionScroll));
             if (ImGui::IsItemClicked()) m_scrollCallback();
             ImGui::SameLine(0, iconSpacing);
@@ -479,7 +511,7 @@ void Toolbar::Render() {
         if (m_recordCallback) {
             const ImVec2 position = ImGui::GetCursorScreenPos();
             ImGui::InvisibleButton("record_region", ImVec2(iconSize, iconSize));
-            ToolbarIcons::DrawIcon(drawList, position, iconSize, ToolbarIcons::IconType::Record,
+            DrawToolbarIcon(drawList, position, iconSize, ToolbarIcons::IconType::Record,
                 baseIconColor, IconStrokeWidth * s);
             if (ImGui::IsItemHovered()) showTooltip(Tr(m_language, TextId::ActionRecord));
             if (ImGui::IsItemClicked()) m_recordCallback();
@@ -495,7 +527,7 @@ void Toolbar::Render() {
 
             ImGui::InvisibleButton("undo_btn", ImVec2(iconSize, iconSize));
             RecordEditorControl();
-            ToolbarIcons::DrawUndoIcon(drawList, p_min, iconSize, iconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Undo, iconColor, IconStrokeWidth * s);
 
             if (ImGui::IsItemHovered()) {
                 showTooltip(Tr(m_language, TextId::ActionUndo));
@@ -515,6 +547,7 @@ void Toolbar::Render() {
 
         // 置顶图标（分隔线后、保存前）
         {
+            ImGui::BeginDisabled(!m_pinCallback);
             ImVec2 p_min = ImGui::GetCursorScreenPos();
             ImVec2 p_max = ImVec2(p_min.x + iconSize, p_min.y + iconSize);
             ImGui::InvisibleButton("pin_btn", ImVec2(iconSize, iconSize));
@@ -524,11 +557,12 @@ void Toolbar::Render() {
                 showTooltip(Tr(m_language, TextId::ActionPin));
             }
 
-            ToolbarIcons::DrawPinIcon(drawList, p_min, iconSize, baseIconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Pin, m_pinCallback ? baseIconColor : disabledColor, IconStrokeWidth * s);
 
             if (ImGui::IsItemClicked()) {
                 if (m_pinCallback) m_pinCallback();
             }
+            ImGui::EndDisabled();
         }
         ImGui::SameLine(0, iconSpacing);
 
@@ -543,7 +577,7 @@ void Toolbar::Render() {
                 showTooltip(Tr(m_language, TextId::ActionSaveImage));
             }
 
-            ToolbarIcons::DrawSaveIcon(drawList, p_min, iconSize, baseIconColor, IconStrokeWidth * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Save, baseIconColor, IconStrokeWidth * s);
 
             if (ImGui::IsItemClicked()) {
                 if (m_saveCallback) m_saveCallback();
@@ -563,7 +597,7 @@ void Toolbar::Render() {
             }
 
             ImU32 closeColor = GetThemePalette(m_theme).danger;
-            ToolbarIcons::DrawCloseIcon(drawList, p_min, iconSize, closeColor, 1.5f * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Close, closeColor, 1.5f * s);
             if (ImGui::IsItemClicked()) {
                 if (m_cancelCallback) m_cancelCallback();
             }
@@ -603,7 +637,7 @@ void Toolbar::Render() {
             }
 
             ImU32 okColor = GetThemePalette(m_theme).confirm;
-            ToolbarIcons::DrawOkIcon(drawList, p_min, iconSize, okColor, 1.5f * s);
+            DrawToolbarIcon(drawList, p_min, iconSize, ToolbarIcons::IconType::Ok, okColor, 1.5f * s);
             if (ImGui::IsItemClicked()) {
                 if (m_confirmCallback) m_confirmCallback();
             }

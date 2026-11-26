@@ -21,6 +21,7 @@ endif()
 # Options
 option(SHOTLET_BUILD_CAPTURE_SDK "Build capture SDK and standalone host helper" OFF)
 option(SHOTLET_BUILD_TESTS "Build tests" ON)
+option(SHOTLET_BUILD_LINUX_GUI_TESTS "Test real Linux screenshot, annotations and native save dialogs" OFF)
 option(SHOTLET_BUILD_NODE_ADDON "Build Node-API addon" ON)
 find_package(Threads REQUIRED)
 
@@ -32,10 +33,22 @@ set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-# 所有平台的截图与编辑器使用 SDL_GPU，关闭未使用的子系统；覆盖旧构建缓存中的默认值。
+# 默认使用 SDL_GPU；Linux 另启用软件渲染，关闭其他未使用子系统。
 foreach(subsystem AUDIO CAMERA JOYSTICK HAPTIC HIDAPI POWER SENSOR DIALOG RENDER)
     set(SDL_${subsystem} OFF CACHE BOOL "Shotlet 不使用此 SDL 子系统" FORCE)
 endforeach()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The first Linux desktop backend is X11; file dialogs use Portal or Zenity.
+    set(SDL_DIALOG ON CACHE BOOL "Linux native save dialogs" FORCE)
+    set(SDL_RENDER ON CACHE BOOL "Linux software rendering fallback" FORCE)
+    set(SDL_RENDER_GPU OFF CACHE BOOL "Software fallback does not use SDL_GPU" FORCE)
+    set(SDL_RENDER_VULKAN OFF CACHE BOOL "Software fallback does not use Vulkan" FORCE)
+    set(SDL_OPENGL OFF CACHE BOOL "Software fallback does not use OpenGL" FORCE)
+    set(SDL_OPENGLES OFF CACHE BOOL "Software fallback does not use GLES" FORCE)
+    set(SDL_WAYLAND OFF CACHE BOOL "Linux capture currently requires X11" FORCE)
+    set(SDL_KMSDRM OFF CACHE BOOL "Linux capture currently requires an X11 desktop" FORCE)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 # 后台模式使用系统托盘，覆盖旧缓存中关闭的设置。
 set(SDL_TRAY ON CACHE BOOL "Shotlet 后台模式使用系统托盘" FORCE)
 if(APPLE)
@@ -65,6 +78,13 @@ set(SHOTLET_SDL_DYNAMIC_API_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/dis
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SHOTLET_SDL_DYNAMIC_API_PATCH}")
 # 关闭跳转表后，静态链接可以移除未使用的 SDL 实现；补丁不匹配时停止配置。
 shotlet_apply_patch("${SDL3_DIR}" "${SHOTLET_SDL_DYNAMIC_API_PATCH}")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # SDL 3.4.18 uses the color stride to read UVs in its software quad path.
+    # ImGui supplies separate float colors and packed position/UV vertices.
+    set(SHOTLET_SDL_SOFTWARE_UV_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/software-uv-stride.patch")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SHOTLET_SDL_SOFTWARE_UV_PATCH}")
+    shotlet_apply_patch("${SDL3_DIR}" "${SHOTLET_SDL_SOFTWARE_UV_PATCH}")
+endif()
 if(APPLE)
     set(SHOTLET_MAC_TRANSPARENT_BACKING_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/macos-transparent-backing.patch")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SHOTLET_MAC_TRANSPARENT_BACKING_PATCH}")
@@ -73,7 +93,7 @@ if(APPLE)
 endif()
 set(SDL3_TARGET SDL3::SDL3-static)
 
-# ImGui source files (all platforms use SDL_GPU backend)
+# ImGui renderer backends (Linux also supports CPU rendering without Vulkan).
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/imgui" CACHE PATH "Path to ImGui directory")
 set(IMGUI_CORE
     ${IMGUI_DIR}/imgui.cpp
@@ -89,6 +109,9 @@ set(IMGUI_SOURCES ${IMGUI_CORE}
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     ${IMGUI_SDLGPU3_SOURCE}
 )
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND IMGUI_SOURCES ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
+endif()
 
 # Shared application sources
 set(SHOTLET_CORE_SOURCES
@@ -243,6 +266,14 @@ else()
     list(APPEND SHOTLET_CORE_SOURCES src/core/SmartRegionDetector_stub.cpp)
     list(APPEND SHOTLET_CORE_SOURCES src/scrollcapture/MacFrameSource_stub.cpp)
     list(APPEND SHOTLET_CORE_SOURCES src/scrollcapture/MacScrollDriver_stub.cpp)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(REMOVE_ITEM SHOTLET_CORE_SOURCES
+            src/platform/FontProvider_stub.cpp src/platform/FileService_stub.cpp)
+        list(APPEND SHOTLET_CORE_SOURCES
+            src/platform/FontProvider_linux.cpp src/platform/FileService_linux.cpp
+            src/platform/ImageOutput_linux.cpp)
+        list(APPEND SHOTLET_CORE_SOURCES src/ui/SoftwareIconCache.cpp)
+    endif()
 endif()
 
 add_library(shotlet_core STATIC ${SHOTLET_CORE_SOURCES} ${IMGUI_SOURCES})
@@ -274,6 +305,12 @@ target_include_directories(shotlet_core PUBLIC
 )
 
 target_link_libraries(shotlet_core PUBLIC ${SDL3_TARGET} Threads::Threads)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(X11 REQUIRED COMPONENTS Xrandr Xinerama)
+    find_package(Fontconfig REQUIRED)
+    target_link_libraries(shotlet_core PUBLIC
+        X11::X11 X11::Xrandr X11::Xinerama Fontconfig::Fontconfig)
+endif()
 if(NOT WIN32)
     target_link_libraries(shotlet_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
@@ -522,4 +559,8 @@ endif()
 
 if(SHOTLET_BUILD_CAPTURE_SDK)
     include(cmake/CaptureSDK.cmake)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    include(cmake/LinuxPackaging.cmake)
 endif()

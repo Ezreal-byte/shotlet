@@ -219,8 +219,10 @@ namespace shotlet {
         });
         m_toolbar->SetCancelCallback([this]() { m_shouldClose = true; });
         m_toolbar->SetSaveCallback([this]() { m_saveRequested = true; m_hasResult = true; });
+#if !defined(SHOTLET_PLATFORM_LINUX)
         m_toolbar->SetPinCallback([this]() { m_pinRequested = true; m_hasResult = true; });
         m_toolbar->SetOcrCallback([this]() { m_ocrRequested = true; m_hasResult = true; });
+#endif
 
         m_subToolbar = std::make_unique<SubToolbar>();
         m_subToolbar->SetLanguage(m_config.language);

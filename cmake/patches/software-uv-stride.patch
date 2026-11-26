@@ -1,0 +1,17 @@
+diff --git a/src/render/SDL_render.c b/src/render/SDL_render.c
+--- a/src/render/SDL_render.c
++++ b/src/render/SDL_render.c
+@@ -5113,9 +5113,9 @@ static bool SDLCALL SDL_SW_RenderGeometryRaw(SDL_Renderer *renderer,
+         // Check if UVs within range
+         if (is_quad && uv) {
+-            const float *uv0_ = (const float *)((const char *)uv + A * color_stride);
+-            const float *uv1_ = (const float *)((const char *)uv + B * color_stride);
+-            const float *uv2_ = (const float *)((const char *)uv + C * color_stride);
+-            const float *uv3_ = (const float *)((const char *)uv + C2 * color_stride);
++            const float *uv0_ = (const float *)((const char *)uv + A * uv_stride);
++            const float *uv1_ = (const float *)((const char *)uv + B * uv_stride);
++            const float *uv2_ = (const float *)((const char *)uv + C * uv_stride);
++            const float *uv3_ = (const float *)((const char *)uv + C2 * uv_stride);
+             if (uv0_[0] >= 0.0f && uv0_[0] <= 1.0f &&
+                 uv1_[0] >= 0.0f && uv1_[0] <= 1.0f &&
+                 uv2_[0] >= 0.0f && uv2_[0] <= 1.0f &&

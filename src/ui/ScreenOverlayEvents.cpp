@@ -42,6 +42,16 @@ namespace shotlet {
 #else
         if (!m_created || !m_imguiContext) return;
 
+#if defined(SHOTLET_PLATFORM_LINUX)
+        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+            event.key.key == SDLK_S && (event.key.mod & SDL_KMOD_CTRL) &&
+            m_canvas && m_canvas->HasSelection()) {
+            m_saveRequested = true;
+            m_hasResult = true;
+            return;
+        }
+#endif
+
         ImGuiContext* prevCtx = ImGui::GetCurrentContext();
         ImGui::SetCurrentContext(m_imguiContext);
         ImGui_ImplSDL3_ProcessEvent(const_cast<SDL_Event*>(&event));

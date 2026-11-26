@@ -1,0 +1,110 @@
+name: Linux build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+            zig_sha256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            zig_sha256: 958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build and desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build git pkg-config \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxext-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libdbus-1-dev libfontconfig1-dev libgtest-dev fonts-wqy-zenhei \
+            zenity xvfb xauth xdotool python3-pil mesa-vulkan-drivers
+      - name: Get pinned SDL and ImGui
+        run: |
+          git clone --branch release-3.4.18 --depth 1 https://github.com/libsdl-org/SDL.git sdl3
+          git clone https://github.com/ocornut/imgui.git imgui
+          git -C imgui checkout e05bd9deb9a73b67acb5c04b8a581e06a2d42657
+      - name: Configure and build native tests
+        run: |
+          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DSDL3_DIR="$PWD/sdl3" -DIMGUI_DIR="$PWD/imgui" \
+            -DSHOTLET_BUILD_NODE_ADDON=OFF -DSHOTLET_BUILD_CAPTURE_SDK=ON \
+            -DSHOTLET_BUILD_TESTS=ON -DSHOTLET_BUILD_LINUX_GUI_TESTS=ON
+          cmake --build build/native --parallel 4
+      - name: Test native desktop and core
+        run: |
+          ctest --test-dir build/native --output-on-failure --timeout 120
+          cmake --build build/native --target capture_sdk_check
+      - name: Install pinned Zig
+        env:
+          ZIG_ARCH: ${{ matrix.arch }}
+          ZIG_SHA256: ${{ matrix.zig_sha256 }}
+        run: |
+          archive="zig-${ZIG_ARCH}-linux-0.15.2.tar.xz"
+          curl --fail --location --retry 3 "https://ziglang.org/download/0.15.2/${archive}" -o "$RUNNER_TEMP/$archive"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check -
+          tar -xf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-${ZIG_ARCH}-linux-0.15.2" >> "$GITHUB_PATH"
+      - name: Build glibc 2.28 compatible binaries
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          cmake -S . -B build/portable -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/linux-zig.cmake" \
+            -DSHOTLET_LINUX_ARCH="$TARGET_ARCH" \
+            -DSDL3_DIR="$PWD/sdl3" -DIMGUI_DIR="$PWD/imgui" \
+            -DSHOTLET_BUILD_NODE_ADDON=OFF -DSHOTLET_BUILD_CAPTURE_SDK=ON \
+            -DSHOTLET_BUILD_TESTS=OFF
+          cmake --build build/portable --parallel 4
+          python3 scripts/check-linux-abi.py --arch "$TARGET_ARCH" --static-cxx \
+            build/portable/shotlet build/portable/shotlet-capture
+          cmake --build build/portable --target capture_sdk_check
+      - name: Test portable capture, annotation and native save
+        run: |
+          xvfb-run -a -s '-screen 0 1280x800x24 -noreset' \
+            python3 tests/test_linux_gui.py --app build/portable/shotlet \
+            --artifacts build/portable/gui-artifacts
+      - name: Test portable software fallback without Vulkan
+        env:
+          SHOTLET_RENDERER: auto
+          VK_DRIVER_FILES: /nonexistent-shotlet-icd.json
+          VK_ICD_FILENAMES: /nonexistent-shotlet-icd.json
+        run: |
+          xvfb-run -a -s '-screen 0 1280x800x24 -noreset' \
+            python3 tests/test_linux_gui.py --app build/portable/shotlet \
+            --expect-software --artifacts build/portable/software-gui-artifacts
+      - name: Package
+        env:
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          cpack --config build/portable/CPackConfig.cmake -G 'DEB;TGZ' -B dist/linux
+          python3 scripts/package-linux-testkit.py \
+            --packages dist/linux/shotlet-*-linux-*.tar.gz \
+            --output "dist/linux/shotlet-linux-testkit-${TARGET_ARCH}.tar.gz"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shotlet-linux-${{ matrix.arch }}
+          path: |
+            dist/linux/*.deb
+            dist/linux/*.tar.gz
+            dist/linux/*.sha256
+            build/native/tests/linux-gui-artifacts/
+            build/native/tests/linux-gui-*-artifacts/
+            build/portable/gui-artifacts/
+            build/portable/software-gui-artifacts/
+            build/native/Testing/Temporary/LastTest.log

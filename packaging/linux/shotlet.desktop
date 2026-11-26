@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Shotlet
+Name[zh_CN]=Shotlet 截图
+Comment=Capture, annotate and save screenshots
+Comment[zh_CN]=截取屏幕、添加标注并保存图片
+Exec=shotlet
+Icon=shotlet
+Terminal=false
+Categories=Graphics;Utility;
+StartupNotify=false

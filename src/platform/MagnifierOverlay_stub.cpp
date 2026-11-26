@@ -4,6 +4,8 @@
 #if !defined(SHOTLET_PLATFORM_MACOS)
 #if !defined(SHOTLET_PLATFORM_WINDOWS)
 
+struct shotlet::MagnifierOverlay::Impl {};
+
 shotlet::MagnifierOverlay::MagnifierOverlay()
     : m_impl(nullptr) {
 }
@@ -21,7 +23,6 @@ void shotlet::MagnifierOverlay::Shutdown() {
 }
 
 void shotlet::MagnifierOverlay::Show() {
-    Logger::Warning("MagnifierOverlay not supported on this platform");
 }
 
 void shotlet::MagnifierOverlay::Hide() {
