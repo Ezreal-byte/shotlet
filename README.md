@@ -237,6 +237,13 @@ The build requires Windows SDK C++/WinRT headers. If CMake cannot find `winrt/ba
 
 Install `gtest:x64-windows` with vcpkg, set `VCPKG_ROOT`, and reconfigure the build directory.
 
+## Showcase
+
+- **[GoIM](https://github.com/Ezreal-byte/GoIM)** ([Website](https://ezreal-byte.github.io/GoIM/en/)) — A native LAN instant messenger and file-sharing desktop app built with Go and [Viva](https://github.com/vivaui/viva). It supports automatic LAN discovery, direct and group chats, voice calls, TLS-encrypted file transfers, browser-based file sharing, printer sharing, and compatibility with legacy LAN messengers—all with local-first chat history. Worth checking out if you need fast, self-contained local network messaging.
+  - **How it uses Shotlet**: On Windows and macOS, GoIM bundles Shotlet via the [Capture SDK](docs/capture-sdk.md) to power in-chat screenshot annotation, scrolling capture, OCR, pinning, and region recording.
+
+Using Shotlet in your project? Feel free to open an issue or pull request to get featured here.
+
 ## License
 
 Shotlet is distributed under the [Apache License 2.0](LICENSE). Third-party components retain their respective licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

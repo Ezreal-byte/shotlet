@@ -7,7 +7,7 @@
   <p>从多屏捕获、滚动长图到标注、OCR、历史管理和选区录屏，在一个轻量原生应用中完成。</p>
   <p><a href="assets/app-tray.png"><img src="assets/app-tray.png" width="900" alt="Shotlet 最近截图弹层与桌面截图预览" /></a></p>
   <p><sub>最近截图弹层：浏览并预览截图，快速复制或打开完整历史。</sub></p>
-  <p><a href="#功能">功能介绍</a> · <a href="#获取依赖">获取依赖</a> · <a href="#快速构建">快速构建</a> · <a href="#electron--node-api">Node-API</a> · <a href="#截图-sdk-与宿主运行时">截图 SDK</a></p>
+  <p><a href="#功能">功能介绍</a> · <a href="#获取依赖">获取依赖</a> · <a href="#快速构建">快速构建</a> · <a href="#electron--node-api">Node-API</a> · <a href="#截图-sdk-与宿主运行时">截图 SDK</a> · <a href="#使用案例">使用案例</a></p>
 </div>
 
 Shotlet 使用 C++20、SDL3、Dear ImGui 和 SDL_GPU 构建，支持 Windows 与 macOS，并提供可供 Electron/Node.js 主进程加载的 Node-API addon，以及供 Go、C、C++ 宿主集成的截图 SDK。
@@ -437,3 +437,10 @@ cmake -S . -B build \
 ## 截图 SDK 与宿主运行时
 
 Go、C、C++ 宿主可使用 `python3 scripts/export-capture-sdk.py` 导出的预编译 C SDK 与独立截图辅助程序，无需 Node.js。宿主模式提供与独立应用相同的截图工具栏（OCR、贴图、保存、录制），选区截图返回图片，不读写独立应用设置、不启用历史、托盘、热键或剪贴板输出，权限状态由宿主传入，既有独立应用和 Node addon 默认行为不变。接口、产物清单和生命周期约定见 [截图 SDK](docs/capture-sdk.md)。
+
+## 使用案例
+
+- **[GoIM](https://github.com/Ezreal-byte/GoIM)**（[官网](https://ezreal-byte.github.io/GoIM/)）—— 一款基于 Go 与 [Viva](https://github.com/vivaui/viva) 构建的原生局域网即时通讯与文件共享工具。支持局域网自动发现、单聊与群聊、语音通话、TLS 加密文件传输、浏览器免客户端文件分享、打印机共享，并兼容内网通、飞鸽（IP Messenger）和飞秋等经典内网工具，聊天记录完全保存在本地。如果有局域网办公沟通和传文件需求，推荐体验。
+  - **Shotlet 集成方式**：GoIM 在 Windows 与 macOS 上通过 [截图 SDK](docs/capture-sdk.md) 随包集成了 Shotlet 截图助手，提供标注、滚动截图、OCR、贴图及选区录屏能力，确认截图后可直接粘贴发送到聊天。
+
+欢迎集成或使用 Shotlet 的项目通过 Issue 或 PR 提交案例，互相交流推荐。
